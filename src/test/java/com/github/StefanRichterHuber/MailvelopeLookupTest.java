@@ -8,9 +8,10 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.resteasy.reactive.RestResponse;
 import org.junit.jupiter.api.Test;
 
-import com.github.StefanRichterHuber.models.MailvelopeKeySearchResponse;
-import com.github.StefanRichterHuber.models.MailvelopeKeyServerService;
-import com.github.StefanRichterHuber.models.OpenPGPKeysServerService;
+import com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService;
+import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeySearchResponse;
+import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeyServerService;
+import com.github.StefanRichterHuber.MailSenderService.models.OpenPGPKeysServerService;
 
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.enterprise.inject.Instance;

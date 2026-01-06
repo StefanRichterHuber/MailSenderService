@@ -1,4 +1,4 @@
-package com.github.StefanRichterHuber;
+package com.github.StefanRichterHuber.MailSenderService;
 
 import java.io.FilterOutputStream;
 import java.io.IOException;

@@ -1,4 +1,4 @@
-package com.github.StefanRichterHuber;
+package com.github.StefanRichterHuber.MailSenderService;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
@@ -111,6 +111,9 @@ public class SecureMailSender {
             throw new IllegalArgumentException("body must not be null or empty");
         }
         final boolean protectHeaders = smtpConfig.protectHeaders() && recipientCert != null;
+        if (protectHeaders) {
+            logger.info("Protecting headers for messages to " + to);
+        }
 
         // --- 1. Create the Inner Content (Body + Attachment) ---
         MimeMultipart contentMultipart = new MimeMultipart("mixed");

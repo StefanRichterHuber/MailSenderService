@@ -10,6 +10,11 @@ import java.util.Properties;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.junit.jupiter.api.Test;
 
+import com.github.StefanRichterHuber.MailSenderService.CRLFOutputStream;
+import com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService;
+import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
+import com.github.StefanRichterHuber.MailSenderService.SecureMailSender;
+
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.activation.DataSource;
 import jakarta.activation.FileDataSource;

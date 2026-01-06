@@ -1,4 +1,4 @@
-package com.github.StefanRichterHuber.models;
+package com.github.StefanRichterHuber.MailSenderService.models;
 
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import org.jboss.resteasy.reactive.RestResponse;

@@ -1,4 +1,4 @@
-package com.github.StefanRichterHuber.models;
+package com.github.StefanRichterHuber.MailSenderService.models;
 
 import java.util.List;
 

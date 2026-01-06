@@ -1,4 +1,4 @@
-package com.github.StefanRichterHuber.keysearch;
+package com.github.StefanRichterHuber.MailSenderService.keysearch;
 
 import java.io.IOException;
 import java.util.Optional;
@@ -7,9 +7,9 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.RestResponse;
 
-import com.github.StefanRichterHuber.PublicKeySearchService;
-import com.github.StefanRichterHuber.models.MailvelopeKeySearchResponse;
-import com.github.StefanRichterHuber.models.MailvelopeKeyServerService;
+import com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService;
+import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeySearchResponse;
+import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeyServerService;
 
 import io.quarkus.cache.CacheResult;
 import jakarta.enterprise.context.ApplicationScoped;
