@@ -28,22 +28,22 @@ public class OpenPGPPublicKeySearchService implements PublicKeySearchService {
 
     @Override
     @CacheResult(cacheName = "mail-public-key-cache")
-    public Optional<byte[]> searchKeyByEmail(String email) {
+    public byte[] searchKeyByEmail(String email) {
         if (email == null || email.isEmpty()) {
-            return Optional.empty();
+            return null;
         }
         try {
             RestResponse<String> response = openPGPKeyServerService.getByEmail(email);
             if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
                 logger.infof("Public Key found for email: %s on keys.openpgp.org", email);
                 final String armouredKey = response.getEntity();
-                return Optional.of(PublicKeySearchService.dearmorKey(armouredKey.getBytes()));
+                return PublicKeySearchService.dearmorKey(armouredKey.getBytes());
             }
             logger.infof("Public Key not found for email: %s on keys.openpgp.org", email);
-            return Optional.empty();
+            return null;
         } catch (WebApplicationException e) {
             logger.infof("Public Key not found for email: %s on keys.openpgp.org", email);
-            return Optional.empty();
+            return null;
         } catch (IOException e) {
             logger.errorf(e, "Failed to parse public key for email: %s on keys.openpgp.org", email);
             throw new RuntimeException(e);

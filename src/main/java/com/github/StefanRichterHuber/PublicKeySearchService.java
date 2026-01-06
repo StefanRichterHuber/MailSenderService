@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.Optional;
 
 import jakarta.enterprise.inject.spi.CDI;
 
@@ -18,10 +17,10 @@ public interface PublicKeySearchService {
      * @param email
      * @return
      */
-    public static Optional<byte[]> findByMail(String email) {
+    public static byte[] findByMail(String email) {
         return CDI.current().select(PublicKeySearchService.class).stream()
                 .map(service -> service.searchKeyByEmail(email))
-                .filter(Optional::isPresent).map(Optional::get).findFirst();
+                .filter(v -> v != null).findFirst().orElse(null);
     }
 
     /**
@@ -30,7 +29,7 @@ public interface PublicKeySearchService {
      * @param email
      * @return
      */
-    Optional<byte[]> searchKeyByEmail(String email);
+    byte[] searchKeyByEmail(String email);
 
     /**
      * Parses an ASCII Armored OpenPGP key and extracts the raw binary data.

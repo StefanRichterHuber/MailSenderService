@@ -50,7 +50,7 @@ public class MailvelopeLookupTest {
     @Test
     public void testLookup4() {
         publicKeySearchServices.forEach(service -> {
-            Optional<byte[]> key = service.searchKeyByEmail("stefan@richter-huber.de");
+            byte[] key = service.searchKeyByEmail("stefan@richter-huber.de");
             System.out.println(key);
         });
     }

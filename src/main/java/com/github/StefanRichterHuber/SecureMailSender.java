@@ -40,6 +40,9 @@ public class SecureMailSender {
     @Inject
     Logger logger;
 
+    @Inject
+    PrivateKeyProvider privateKeyProvider;
+
     static {
         Security.addProvider(new BouncyCastleProvider());
     }
@@ -65,9 +68,7 @@ public class SecureMailSender {
             final Iterable<DataSource> attachments) throws Exception {
 
         final InternetAddress from = new InternetAddress(smtpConfig.senderEmail());
-        final byte[] senderKey = smtpConfig.senderSecretKeyFile().exists()
-                ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
-                : null;
+        final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.senderEmail());
         return createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments);
     }
 

@@ -38,10 +38,7 @@ public class SecureMailSenderTest {
 
     private MimeMessage sendMail(boolean withEncryption) throws Exception {
 
-        byte[] recipientCert = null;
-
-        // Lookup cert
-        recipientCert = PublicKeySearchService.findByMail("stefan@richter-huber.de").orElse(null);
+        byte[] recipientCert = PublicKeySearchService.findByMail("stefan@richter-huber.de");
 
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(new File("README.md")));
