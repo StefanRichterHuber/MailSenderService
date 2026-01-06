@@ -3,6 +3,7 @@ package com.github.StefanRichterHuber;
 import java.io.File;
 
 import io.smallrye.config.ConfigMapping;
+import io.smallrye.config.WithDefault;
 
 @ConfigMapping(prefix = "smtp")
 public interface SMTPConfig {
@@ -19,4 +20,10 @@ public interface SMTPConfig {
     String senderSecretKeyPassword();
 
     File recipientPublicKeyFile();
+
+    @WithDefault("true")
+    boolean protectHeaders();
+
+    @WithDefault("...")
+    String encryptedSubjectPlaceholder();
 }

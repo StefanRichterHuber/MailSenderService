@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.Security;
 import java.util.Base64;
-import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -111,6 +110,7 @@ public class SecureMailSender {
         if (body == null || body.isEmpty()) {
             throw new IllegalArgumentException("body must not be null or empty");
         }
+        final boolean protectHeaders = smtpConfig.protectHeaders() && recipientCert != null;
 
         // --- 1. Create the Inner Content (Body + Attachment) ---
         MimeMultipart contentMultipart = new MimeMultipart("mixed");
@@ -134,6 +134,23 @@ public class SecureMailSender {
         MimeBodyPart contentBodyPart = new MimeBodyPart();
         contentBodyPart.setContent(contentMultipart);
         contentBodyPart.setHeader("Content-Type", contentMultipart.getContentType());
+
+        if (protectHeaders) {
+            // ---------------------------------------------------------
+            // PROTECTED HEADERS IMPLEMENTATION (SPEC SECTIONS 3.3, 4.1)
+            // ---------------------------------------------------------
+            // 1. Add headers to the Cryptographic Payload (the inner content part).
+            // These will be signed, ensuring authenticity[cite: 20].
+            contentBodyPart.setHeader("Subject", subject);
+            contentBodyPart.setHeader("From", from.toString());
+            contentBodyPart.setHeader("To", to.toString());
+
+            // 2. Append the 'protected-headers="v1"' parameter to the Content-Type.
+            // This MUST be on the root of the Cryptographic Payload[cite: 155].
+            String originalContentType = contentMultipart.getContentType();
+            contentBodyPart.setHeader("Content-Type", originalContentType + "; protected-headers=\"v1\"");
+            // ---------------------------------------------------------
+        }
 
         // Create a temporary message to ensure all headers and so on are properly set
         MimeMessage tmp = new MimeMessage(
@@ -230,7 +247,12 @@ public class SecureMailSender {
                 session);
         message.setFrom(from);
         message.addRecipient(MimeMessage.RecipientType.TO, to);
-        message.setSubject(subject);
+        if (protectHeaders) {
+            // If encrypted, obscure the outer subject[cite: 159, 258].
+            message.setSubject(smtpConfig.encryptedSubjectPlaceholder());
+        } else {
+            message.setSubject(subject);
+        }
 
         // Set the content
         message.setContent(finalBodyPart.getContent(), finalBodyPart.getContentType());
