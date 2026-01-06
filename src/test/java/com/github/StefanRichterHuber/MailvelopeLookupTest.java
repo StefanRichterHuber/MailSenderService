@@ -1,7 +1,9 @@
 package com.github.StefanRichterHuber;
 
-import java.util.Optional;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.resteasy.reactive.RestResponse;
 import org.junit.jupiter.api.Test;
@@ -26,32 +28,26 @@ public class MailvelopeLookupTest {
     @Inject
     Instance<PublicKeySearchService> publicKeySearchServices;
 
+    @Inject
+    @ConfigProperty(name = "mail.to")
+    String to;
+
     @Test
     public void testLookup() {
         RestResponse<MailvelopeKeySearchResponse> response = mailvelopeKeyServerService
-                .searchKeyByEmail("stefan@richter-huber.de");
-        System.out.println(response.getEntity());
-
+                .searchKeyByEmail(to);
+        assertTrue(response.getStatus() == 200);
+        assertNotNull(response.getEntity());
+        assertNotNull(response.getEntity().publicKeyArmored());
+        assertTrue(response.getEntity().publicKeyArmored().contains("BEGIN PGP PUBLIC KEY BLOCK"));
     }
 
     @Test
     public void testLookup2() {
-        RestResponse<String> response = openPGPKeysServerService.getByEmail("stefan@richter-huber.de");
-        System.out.println(response.getEntity());
+        RestResponse<String> response = openPGPKeysServerService.getByEmail(to);
+        assertTrue(response.getStatus() == 200);
+        assertNotNull(response.getEntity());
+        assertTrue(response.getEntity().contains("BEGIN PGP PUBLIC KEY BLOCK"));
     }
 
-    @Test
-    public void testLookup3() {
-        RestResponse<String> response = openPGPKeysServerService
-                .getByFingerprint("060EC5778F870626CED6FF01165B2DF3D2D2648B");
-        System.out.println(response.getEntity());
-    }
-
-    @Test
-    public void testLookup4() {
-        publicKeySearchServices.forEach(service -> {
-            byte[] key = service.searchKeyByEmail("stefan@richter-huber.de");
-            System.out.println(key);
-        });
-    }
 }

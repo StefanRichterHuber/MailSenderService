@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.junit.jupiter.api.Test;
 
 import io.quarkus.test.junit.QuarkusTest;
@@ -27,6 +28,10 @@ public class SecureMailSenderTest {
 
     @Inject
     SMTPConfig smtpConfig;
+
+    @Inject
+    @ConfigProperty(name = "mail.to")
+    String to;
 
     @Test
     public void testSendSignedAndEncryptedMail() throws Exception {
@@ -67,13 +72,13 @@ public class SecureMailSenderTest {
 
     private MimeMessage sendMail(boolean withEncryption, Session session) throws Exception {
 
-        byte[] recipientCert = PublicKeySearchService.findByMail("stefan@richter-huber.de");
+        byte[] recipientCert = PublicKeySearchService.findByMail(to);
 
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(new File("README.md")));
         attachments.add(new FileDataSource(new File("pom.xml")));
 
-        MimeMessage mimeMessage = secureMailSender.createSignedMail(new InternetAddress("stefan@richter-huber.de"),
+        MimeMessage mimeMessage = secureMailSender.createSignedMail(new InternetAddress(to),
                 "Secure Document", "Here is the requested document.",
                 withEncryption ? recipientCert : null,
                 attachments, session);
