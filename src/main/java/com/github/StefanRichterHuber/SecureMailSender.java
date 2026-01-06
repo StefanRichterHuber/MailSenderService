@@ -65,11 +65,12 @@ public class SecureMailSender {
             final String subject,
             final String body,
             final byte[] recipientCert,
-            final Iterable<DataSource> attachments) throws Exception {
+            final Iterable<DataSource> attachments,
+            final Session session) throws Exception {
 
         final InternetAddress from = new InternetAddress(smtpConfig.senderEmail());
         final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.senderEmail());
-        return createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments);
+        return createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments, session);
     }
 
     /**
@@ -94,7 +95,8 @@ public class SecureMailSender {
             final String body,
             final byte[] senderKey,
             final byte[] recipientCert,
-            Iterable<DataSource> attachments) throws Exception {
+            Iterable<DataSource> attachments,
+            Session session) throws Exception {
         // --- Inputs ---
         // Validate inputs, one after another
         if (from == null) {
@@ -111,7 +113,6 @@ public class SecureMailSender {
         }
 
         // --- 1. Create the Inner Content (Body + Attachment) ---
-        Session session = Session.getDefaultInstance(new Properties());
         MimeMultipart contentMultipart = new MimeMultipart("mixed");
 
         // Text Part
