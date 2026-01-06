@@ -72,6 +72,19 @@ public class SecureMailSender {
         contentBodyPart.setContent(contentMultipart);
         contentBodyPart.setHeader("Content-Type", contentMultipart.getContentType());
 
+        // Create a temporary message to ensure all headers and so on are properly set
+        MimeMessage tmp = new MimeMessage(
+                session);
+        tmp.setFrom(new InternetAddress(from));
+        tmp.addRecipient(MimeMessage.RecipientType.TO, new InternetAddress(to));
+        tmp.setSubject(subject);
+
+        // Set the content
+        tmp.setContent(contentBodyPart.getContent(), contentBodyPart.getContentType());
+
+        // Save changes
+        tmp.saveChanges();
+
         // --- 2. Sign the Content (PGP/MIME multipart/signed) ---
         // PGP/MIME requires canonicalization (CRLF line endings)
         byte[] contentBytes = getCanonicalBytes(contentBodyPart);
@@ -80,7 +93,7 @@ public class SecureMailSender {
         byte[] signature = sop.sign()
                 .key(senderKey)
                 .withKeyPassword(smtpConfig.senderSecretKeyPassword())
-                .mode(SignAs.binary) // PGP/MIME uses detached signatures
+                .mode(SignAs.text) // PGP/MIME uses detached signatures
                 .data(contentBytes)
                 .toByteArrayAndResult().getBytes();
 
@@ -101,13 +114,7 @@ public class SecureMailSender {
         // Wrap the signed multipart into a BodyPart for the next step
         MimeBodyPart signedBodyPart = new MimeBodyPart();
         signedBodyPart.setContent(signedMultipart);
-
-        // === CRITICAL FIX START ===
-        // We must explicitly set the Content-Type header.
-        // Without this, the encrypted blob will lack the header, and Thunderbird
-        // will treat the decrypted content as plain text.
         signedBodyPart.setHeader("Content-Type", signedMultipart.getContentType());
-        // === CRITICAL FIX END ===
 
         // --- 3. Encrypt the Content (PGP/MIME multipart/encrypted) ---
         MimeBodyPart finalBodyPart;
@@ -118,8 +125,6 @@ public class SecureMailSender {
 
             final byte[] encryptedData = sop.encrypt()
                     .withCert(recipientCert)
-                    .signWith(senderKey) // Optional: sign inside the encryption envelope as well
-                    .withKeyPassword(smtpConfig.senderSecretKeyPassword())
                     .mode(EncryptAs.text) // MIME data is binary
                     .plaintext(signedBytes)
                     .toByteArrayAndResult().getBytes();
@@ -193,4 +198,5 @@ public class SecureMailSender {
         bodyPart.writeTo(out);
         return buffer.toByteArray();
     }
+
 }
