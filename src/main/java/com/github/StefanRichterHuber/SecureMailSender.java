@@ -4,8 +4,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.security.Security;
-import java.util.Collection;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,16 +37,71 @@ public class SecureMailSender {
     }
     private static final SOP sop = new org.pgpainless.sop.SOPImpl();
 
-    public MimeMessage createMail(
-            String from,
-            String to,
-            String subject,
-            String body,
-            boolean withEncryption,
-            byte[] senderKey,
-            byte[] recipientCert,
-            Collection<DataSource> attachments) throws Exception {
+    /**
+     * Creates a secure email message for the configured default sender
+     * 
+     * @param to            The recipient's email address.
+     * @param subject       The subject of the email.
+     * @param body          The body of the email.
+     * @param recipientCert The recipient's public key. If null, the email will not
+     *                      be encrypted.
+     * @param attachments   The attachments to the email.
+     * @return The secure email message.
+     * @throws Exception If an error occurs.
+     */
+    public MimeMessage createSignedMail(
+            final InternetAddress to,
+            final String subject,
+            final String body,
+            final byte[] recipientCert,
+            final Iterable<DataSource> attachments) throws Exception {
+
+        final InternetAddress from = new InternetAddress(smtpConfig.senderEmail());
+        final byte[] senderKey = smtpConfig.senderSecretKeyFile().exists()
+                ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
+                : null;
+        return createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments);
+    }
+
+    /**
+     * Creates a secure email message.
+     * 
+     * @param from          The sender's email address.
+     * @param to            The recipient's email address.
+     * @param subject       The subject of the email.
+     * @param body          The body of the email.
+     * @param senderKey     The sender's private key.
+     * @param recipientCert The recipient's public key. If null, the email will not
+     *                      be encrypted.
+     * @param attachments   The attachments to the email. Optional.
+     * @return The secure email message.
+     * @throws Exception If an error occurs.
+     */
+    public MimeMessage createSignedMail(
+            final InternetAddress from,
+            final InternetAddress to,
+            final String subject,
+            final String body,
+            final byte[] senderKey,
+            final byte[] recipientCert,
+            Iterable<DataSource> attachments) throws Exception {
         // --- Inputs ---
+        // Validate inputs, one after another
+        if (from == null) {
+            throw new IllegalArgumentException("from must not be null");
+        }
+        if (to == null) {
+            throw new IllegalArgumentException("to must not be null");
+        }
+        if (subject == null || subject.isEmpty()) {
+            throw new IllegalArgumentException("subject must not be null or empty");
+        }
+        if (body == null || body.isEmpty()) {
+            throw new IllegalArgumentException("body must not be null or empty");
+        }
+        if (senderKey == null || senderKey.length == 0) {
+            throw new IllegalArgumentException("senderKey must not be null or empty");
+        }
 
         // --- 1. Create the Inner Content (Body + Attachment) ---
         Session session = Session.getDefaultInstance(new Properties());
@@ -75,8 +130,8 @@ public class SecureMailSender {
         // Create a temporary message to ensure all headers and so on are properly set
         MimeMessage tmp = new MimeMessage(
                 session);
-        tmp.setFrom(new InternetAddress(from));
-        tmp.addRecipient(MimeMessage.RecipientType.TO, new InternetAddress(to));
+        tmp.setFrom(from);
+        tmp.addRecipient(MimeMessage.RecipientType.TO, to);
         tmp.setSubject(subject);
 
         // Set the content
@@ -91,7 +146,7 @@ public class SecureMailSender {
 
         // Generate detached signature
         byte[] signature = sop.sign()
-                .key(senderKey)
+                .key(extractPrivateKey(senderKey))
                 .withKeyPassword(smtpConfig.senderSecretKeyPassword())
                 .mode(SignAs.text) // PGP/MIME uses detached signatures
                 .data(contentBytes)
@@ -157,8 +212,8 @@ public class SecureMailSender {
         // --- 4. Finalize Message ---
         MimeMessage message = new MimeMessage(
                 session);
-        message.setFrom(new InternetAddress(from));
-        message.addRecipient(MimeMessage.RecipientType.TO, new InternetAddress(to));
+        message.setFrom(from);
+        message.addRecipient(MimeMessage.RecipientType.TO, to);
         message.setSubject(subject);
 
         // Set the content
@@ -170,9 +225,10 @@ public class SecureMailSender {
     }
 
     /**
-     * Extracts the ASCII Armored Private Key block from a mixed key file.
+     * Extracts the ASCII Armored Private Key block from a mixed key file, since
+     * OpenPGPainless only supports private key only files.
      */
-    public static byte[] extractPrivateKey(byte[] keyFileBytes) {
+    private static byte[] extractPrivateKey(byte[] keyFileBytes) {
         String content = new String(keyFileBytes, StandardCharsets.UTF_8);
 
         // Regex to find the private key block (DOTALL mode allows . to match newlines)

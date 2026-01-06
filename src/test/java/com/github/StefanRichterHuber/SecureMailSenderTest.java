@@ -13,6 +13,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import jakarta.activation.DataSource;
 import jakarta.activation.FileDataSource;
 import jakarta.inject.Inject;
+import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 
 @QuarkusTest
@@ -20,9 +21,6 @@ public class SecureMailSenderTest {
 
     @Inject
     SecureMailSender secureMailSender;
-
-    @Inject
-    SMTPConfig smtpConfig;
 
     @Test
     public void testSendSignedAndEncryptedMail() throws Exception {
@@ -38,10 +36,8 @@ public class SecureMailSenderTest {
 
     private MimeMessage sendMail(boolean withEncryption) throws Exception {
 
-        File senderKeyFile = smtpConfig.senderSecretKeyFile();
         File recipientCertFile = new File("./.keyrings/stefan-keyring.asc"); // Optional
 
-        byte[] senderKey = secureMailSender.extractPrivateKey(Files.readAllBytes(senderKeyFile.toPath()));
         byte[] recipientCert = withEncryption && recipientCertFile.exists()
                 ? Files.readAllBytes(recipientCertFile.toPath())
                 : null;
@@ -50,10 +46,9 @@ public class SecureMailSenderTest {
         attachments.add(new FileDataSource(new File("README.md")));
         attachments.add(new FileDataSource(new File("pom.xml")));
 
-        MimeMessage mimeMessage = secureMailSender.createMail("qnap@richter-huber.de", "stefan@richter-huber.de",
+        MimeMessage mimeMessage = secureMailSender.createSignedMail(new InternetAddress("stefan@richter-huber.de"),
                 "Secure Document", "Here is the requested document.",
-                withEncryption,
-                senderKey, withEncryption ? recipientCert : null,
+                withEncryption ? recipientCert : null,
                 attachments);
 
         return mimeMessage;
