@@ -3,7 +3,6 @@ package com.github.StefanRichterHuber;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,11 +38,10 @@ public class SecureMailSenderTest {
 
     private MimeMessage sendMail(boolean withEncryption) throws Exception {
 
-        File recipientCertFile = new File("./.keyrings/stefan-keyring.asc"); // Optional
+        byte[] recipientCert = null;
 
-        byte[] recipientCert = withEncryption && recipientCertFile.exists()
-                ? Files.readAllBytes(recipientCertFile.toPath())
-                : null;
+        // Lookup cert
+        recipientCert = PublicKeySearchService.findByMail("stefan@richter-huber.de").orElse(null);
 
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(new File("README.md")));

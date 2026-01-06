@@ -15,6 +15,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.jboss.logging.Logger;
 
 import jakarta.activation.DataSource;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -35,6 +36,9 @@ public class SecureMailSender {
 
     @Inject
     SMTPConfig smtpConfig;
+
+    @Inject
+    Logger logger;
 
     static {
         Security.addProvider(new BouncyCastleProvider());
@@ -267,12 +271,13 @@ public class SecureMailSender {
             throws MessagingException {
         // 1. Encode the raw key bytes to Base64
         // The Autocrypt spec requires the keydata to be the Base64 representation of
-        // the binary key.
-        String base64KeyData = Base64.getEncoder().encodeToString(publicKeyBytes);
+        // the binary key (without headers like '-----BEGIN PGP PUBLIC KEY BLOCK-----')
+        final String base64KeyData = Base64.getEncoder().encodeToString(publicKeyBytes);
 
         // 2. Construct the header value
         // Format: addr=user@example.com; prefer-encrypt=mutual; keydata=BASE64BLOB
-        String headerValue = String.format("addr=%s; prefer-encrypt=mutual; keydata=%s", senderEmail, base64KeyData);
+        final String headerValue = String.format("addr=%s; prefer-encrypt=mutual; keydata=%s", senderEmail,
+                base64KeyData);
 
         // 3. Add the header to the message
         // Jakarta Mail handles the line folding (wrapping long headers) automatically.
