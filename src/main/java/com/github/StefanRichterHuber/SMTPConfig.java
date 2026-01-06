@@ -1,6 +1,7 @@
 package com.github.StefanRichterHuber;
 
 import java.io.File;
+import java.util.Map;
 
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
@@ -11,9 +12,11 @@ public interface SMTPConfig {
 
     String port();
 
-    String senderEmail();
+    String from();
 
-    String senderPassword();
+    String user();
+
+    String password();
 
     File senderSecretKeyFile();
 
@@ -21,9 +24,34 @@ public interface SMTPConfig {
 
     File recipientPublicKeyFile();
 
+    /**
+     * Protects (encrypts) the headers (espec. subject) of the email.
+     */
     @WithDefault("true")
     boolean protectHeaders();
 
+    /**
+     * The placeholder for the subject of the email if headers are protected. See
+     * specification for details.
+     */
     @WithDefault("...")
     String encryptedSubjectPlaceholder();
+
+    @WithDefault("false")
+    boolean tls();
+
+    @WithDefault("false")
+    boolean startTlsEnabled();
+
+    @WithDefault("false")
+    boolean login();
+
+    @WithDefault("false")
+    boolean sslEnabled();
+
+    @WithDefault("false")
+    boolean authEnabled();
+
+    @WithDefault("${smtp.host}")
+    String sslTrust();
 }

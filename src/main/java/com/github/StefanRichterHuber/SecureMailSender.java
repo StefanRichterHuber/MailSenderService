@@ -67,8 +67,8 @@ public class SecureMailSender {
             final Iterable<DataSource> attachments,
             final Session session) throws Exception {
 
-        final InternetAddress from = new InternetAddress(smtpConfig.senderEmail());
-        final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.senderEmail());
+        final InternetAddress from = new InternetAddress(smtpConfig.from());
+        final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.from());
         return createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments, session);
     }
 
@@ -273,7 +273,7 @@ public class SecureMailSender {
     public MimeMessage addAutocryptHeader(MimeMessage message)
             throws MessagingException, IOException {
 
-        final String senderMail = smtpConfig.senderEmail();
+        final String senderMail = smtpConfig.from();
 
         // Read public key from *asc file
         final byte[] senderKeyAscFormat = smtpConfig.senderSecretKeyFile().exists()

@@ -29,17 +29,17 @@ public class PrivateKeyProvider {
         if (senderEmail == null || senderEmail.isEmpty()) {
             return null;
         }
-        if (senderEmail.equals(smtpConfig.senderEmail())) {
+        if (senderEmail.equals(smtpConfig.from())) {
             try {
                 final byte[] senderKey = smtpConfig.senderSecretKeyFile().exists()
                         ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
                         : null;
 
-                logger.infof("Sender private key for %s read from configured file %s", smtpConfig.senderEmail(),
+                logger.infof("Sender private key for %s read from configured file %s", smtpConfig.from(),
                         smtpConfig.senderSecretKeyFile());
                 return senderKey;
             } catch (IOException e) {
-                logger.errorf(e, "Failed to read sender private key for %s", smtpConfig.senderEmail());
+                logger.errorf(e, "Failed to read sender private key for %s", smtpConfig.from());
                 return null;
             }
         }
