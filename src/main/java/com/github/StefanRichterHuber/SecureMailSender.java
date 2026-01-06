@@ -1,11 +1,15 @@
 package com.github.StefanRichterHuber;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.Security;
+import java.util.Base64;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -225,23 +229,171 @@ public class SecureMailSender {
     }
 
     /**
+     * Adds an Autocrypt header to a Jakarta Mail message.
+     * 
+     * @param message The message to add the header to.
+     * @return The message with the header added.
+     * @throws MessagingException If the header cannot be set.
+     * @throws IOException        If there is an error reading the byte stream.
+     */
+    public MimeMessage addAutocryptHeader(MimeMessage message)
+            throws MessagingException, IOException {
+
+        final String senderMail = smtpConfig.senderEmail();
+
+        // Read public key from *asc file
+        final byte[] senderKeyAscFormat = smtpConfig.senderSecretKeyFile().exists()
+                ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
+                : null;
+        final byte[] senderKeyAscFormatPublicOnly = extractPublicKey(senderKeyAscFormat);
+
+        // Clean up the key (remove headers) and decode it from asc to binary
+        // First check if its is raw key or asc format
+        final byte[] decodedSenderKey = decodePublicKey(senderKeyAscFormatPublicOnly);
+        return addAutocryptHeader(message, senderMail, decodedSenderKey);
+    }
+
+    /**
+     * Adds an Autocrypt header to a Jakarta Mail message.
+     *
+     * @param message        The MimeMessage to modify.
+     * @param senderEmail    The email address of the sender (must match the 'From'
+     *                       header).
+     * @param publicKeyBytes The raw binary bytes of the OpenPGP public key (NOT
+     *                       ASCII armored).
+     * @throws MessagingException If the header cannot be set.
+     */
+    private static MimeMessage addAutocryptHeader(MimeMessage message, String senderEmail, byte[] publicKeyBytes)
+            throws MessagingException {
+        // 1. Encode the raw key bytes to Base64
+        // The Autocrypt spec requires the keydata to be the Base64 representation of
+        // the binary key.
+        String base64KeyData = Base64.getEncoder().encodeToString(publicKeyBytes);
+
+        // 2. Construct the header value
+        // Format: addr=user@example.com; prefer-encrypt=mutual; keydata=BASE64BLOB
+        String headerValue = String.format("addr=%s; prefer-encrypt=mutual; keydata=%s", senderEmail, base64KeyData);
+
+        // 3. Add the header to the message
+        // Jakarta Mail handles the line folding (wrapping long headers) automatically.
+        message.addHeader("Autocrypt", headerValue);
+        return message;
+    }
+
+    /**
      * Extracts the ASCII Armored Private Key block from a mixed key file, since
      * OpenPGPainless only supports private key only files.
      */
     private static byte[] extractPrivateKey(byte[] keyFileBytes) {
-        String content = new String(keyFileBytes, StandardCharsets.UTF_8);
+        final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
 
         // Regex to find the private key block (DOTALL mode allows . to match newlines)
-        Pattern pattern = Pattern.compile(
+        final Pattern pattern = Pattern.compile(
                 "(-----BEGIN PGP PRIVATE KEY BLOCK-----.*?-----END PGP PRIVATE KEY BLOCK-----)",
                 Pattern.DOTALL);
 
-        Matcher matcher = pattern.matcher(content);
+        final Matcher matcher = pattern.matcher(content);
         if (matcher.find()) {
             return matcher.group(1).getBytes(StandardCharsets.UTF_8);
         } else {
             throw new IllegalArgumentException("No PGP PRIVATE KEY BLOCK found in the provided file.");
         }
+    }
+
+    /**
+     * Extracts the ASCII Armored Public Key block from a mixed key file, since
+     * OpenPGPainless only supports public key only files.
+     */
+    private static byte[] extractPublicKey(byte[] keyFileBytes) {
+        final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
+
+        // Regex to find the private key block (DOTALL mode allows . to match newlines)
+        final Pattern pattern = Pattern.compile(
+                "(-----BEGIN PGP PUBLIC KEY BLOCK-----.*?-----END PGP PUBLIC KEY BLOCK-----)",
+                Pattern.DOTALL);
+
+        final Matcher matcher = pattern.matcher(content);
+        if (matcher.find()) {
+            return matcher.group(1).getBytes(StandardCharsets.UTF_8);
+        } else {
+            throw new IllegalArgumentException("No PGP PUBLIC KEY BLOCK found in the provided file.");
+        }
+    }
+
+    /**
+     * If this is an asc encoded key, remove the headers and return the raw key
+     * 
+     * @throws IOException
+     */
+    private static byte[] decodePublicKey(byte[] keyFileBytes) throws IOException {
+        final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
+        if (content.trim().startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----")) {
+            return dearmorKey(keyFileBytes);
+        } else {
+            // This is already a raw key
+            return keyFileBytes;
+        }
+    }
+
+    /**
+     * Parses an ASCII Armored OpenPGP key and extracts the raw binary data.
+     * This strips the headers, footers, metadata, and CRC checksum.
+     *
+     * @param armoredKeyBytes The byte array containing the ASCII armored key.
+     * @return The raw binary key data.
+     * @throws IOException If there is an error reading the byte stream.
+     */
+    public static byte[] dearmorKey(byte[] armoredKeyBytes) throws IOException {
+        final BufferedReader reader = new BufferedReader(
+                new InputStreamReader(new ByteArrayInputStream(armoredKeyBytes), StandardCharsets.US_ASCII));
+
+        final StringBuilder base64Content = new StringBuilder();
+        String line;
+        boolean inBlock = false;
+        boolean headersFinished = false;
+
+        while ((line = reader.readLine()) != null) {
+            String trimmed = line.trim();
+
+            // 1. Detect Start of Block
+            if (trimmed.startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----")) {
+                inBlock = true;
+                continue;
+            }
+
+            // 2. Detect End of Block
+            if (trimmed.startsWith("-----END PGP PUBLIC KEY BLOCK-----")) {
+                break;
+            }
+
+            if (!inBlock)
+                continue;
+
+            // 3. Skip Metadata Headers (e.g. "Version: ...")
+            // Headers are separated from the Base64 body by an empty line.
+            if (!headersFinished) {
+                if (trimmed.isEmpty()) {
+                    headersFinished = true;
+                }
+                continue;
+            }
+
+            // 4. Skip CRC Checksum
+            // The checksum is the last line of the body and starts with '=' (e.g., =abcd)
+            if (trimmed.startsWith("=")) {
+                continue;
+            }
+
+            // 5. Append Base64 Data
+            base64Content.append(trimmed);
+        }
+
+        if (base64Content.length() == 0) {
+            throw new IllegalArgumentException("Invalid key file: No PGP data found.");
+        }
+
+        // 6. Decode the clean Base64 string to raw bytes
+        return Base64.getDecoder().decode(base64Content.toString());
     }
 
     /**

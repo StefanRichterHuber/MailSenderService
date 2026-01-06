@@ -27,6 +27,9 @@ public class SecureMailSenderTest {
         var mail1 = sendMail(true);
         var mail2 = sendMail(false);
 
+        secureMailSender.addAutocryptHeader(mail1);
+        secureMailSender.addAutocryptHeader(mail2);
+
         // Write to file (or send via Transport)
 
         writeMailToDisk(mail1, true);
