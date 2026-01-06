@@ -148,10 +148,10 @@ public class SecureMailSender {
         tmp.saveChanges();
 
         if (senderKey == null) {
-            logger.infof("No sender key found for email: %s. Skipping signature.", from);
+            logger.debugf("No sender key found for email: %s. Skipping signature.", from);
             return tmp;
         } else {
-            logger.infof("Sender key found for email: %s. Signing message.", from);
+            logger.debugf("Sender key found for email: %s. Signing message.", from);
         }
 
         // --- 2. Sign the Content (PGP/MIME multipart/signed) ---
@@ -220,7 +220,7 @@ public class SecureMailSender {
             finalBodyPart.setContent(encryptedMultipart);
         } else {
             // If no recipient key, just send the signed message
-            logger.infof("No recipient key found for email: %s. Skipping encryption.", to);
+            logger.debugf("No recipient key found for email: %s. Skipping encryption.", to);
             finalBodyPart = signedBodyPart;
         }
 
@@ -261,6 +261,7 @@ public class SecureMailSender {
         // Clean up the key (remove headers) and decode it from asc to binary
         // First check if its is raw key or asc format
         final byte[] decodedSenderKey = decodePublicKey(senderKeyAscFormatPublicOnly);
+
         return addAutocryptHeader(message, senderMail, decodedSenderKey);
     }
 
@@ -274,7 +275,7 @@ public class SecureMailSender {
      *                       ASCII armored).
      * @throws MessagingException If the header cannot be set.
      */
-    private static MimeMessage addAutocryptHeader(MimeMessage message, String senderEmail, byte[] publicKeyBytes)
+    private MimeMessage addAutocryptHeader(MimeMessage message, String senderEmail, byte[] publicKeyBytes)
             throws MessagingException {
         // 1. Encode the raw key bytes to Base64
         // The Autocrypt spec requires the keydata to be the Base64 representation of
@@ -289,6 +290,9 @@ public class SecureMailSender {
         // 3. Add the header to the message
         // Jakarta Mail handles the line folding (wrapping long headers) automatically.
         message.addHeader("Autocrypt", headerValue);
+
+        logger.debugf("Successfully added Autocrypt header to message for sender: %s", senderEmail);
+
         return message;
     }
 

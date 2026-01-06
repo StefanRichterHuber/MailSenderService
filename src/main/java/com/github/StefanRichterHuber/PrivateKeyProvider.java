@@ -22,7 +22,7 @@ public class PrivateKeyProvider {
      * Returns the private key for the given sender email.
      * 
      * @param senderEmail The sender email
-     * @return The private key for the given sender email
+     * @return The private key for the given sender email, if found
      */
     @CacheResult(cacheName = "private-key-cache")
     public byte[] getPrivateKey(String senderEmail) {
