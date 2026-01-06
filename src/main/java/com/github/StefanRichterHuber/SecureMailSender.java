@@ -75,11 +75,12 @@ public class SecureMailSender {
     /**
      * Creates a secure email message.
      * 
-     * @param from          The sender's email address.
-     * @param to            The recipient's email address.
-     * @param subject       The subject of the email.
-     * @param body          The body of the email.
-     * @param senderKey     The sender's private key.
+     * @param from          The sender's email address. Required.
+     * @param to            The recipient's email address. Required.
+     * @param subject       The subject of the email. Required.
+     * @param body          The body of the email. Required.
+     * @param senderKey     The sender's private key. If null, the email will not
+     *                      be signed.
      * @param recipientCert The recipient's public key. If null, the email will not
      *                      be encrypted.
      * @param attachments   The attachments to the email. Optional.
@@ -107,9 +108,6 @@ public class SecureMailSender {
         }
         if (body == null || body.isEmpty()) {
             throw new IllegalArgumentException("body must not be null or empty");
-        }
-        if (senderKey == null || senderKey.length == 0) {
-            throw new IllegalArgumentException("senderKey must not be null or empty");
         }
 
         // --- 1. Create the Inner Content (Body + Attachment) ---
@@ -148,6 +146,13 @@ public class SecureMailSender {
 
         // Save changes
         tmp.saveChanges();
+
+        if (senderKey == null) {
+            logger.infof("No sender key found for email: %s. Skipping signature.", from);
+            return tmp;
+        } else {
+            logger.infof("Sender key found for email: %s. Signing message.", from);
+        }
 
         // --- 2. Sign the Content (PGP/MIME multipart/signed) ---
         // PGP/MIME requires canonicalization (CRLF line endings)
@@ -215,6 +220,7 @@ public class SecureMailSender {
             finalBodyPart.setContent(encryptedMultipart);
         } else {
             // If no recipient key, just send the signed message
+            logger.infof("No recipient key found for email: %s. Skipping encryption.", to);
             finalBodyPart = signedBodyPart;
         }
 

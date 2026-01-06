@@ -18,6 +18,12 @@ public class PrivateKeyProvider {
     @Inject
     Logger logger;
 
+    /**
+     * Returns the private key for the given sender email.
+     * 
+     * @param senderEmail The sender email
+     * @return The private key for the given sender email
+     */
     @CacheResult(cacheName = "private-key-cache")
     public byte[] getPrivateKey(String senderEmail) {
         if (senderEmail == null || senderEmail.isEmpty()) {
