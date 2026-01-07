@@ -8,7 +8,7 @@ This Java project based on the Quarkus framework shows how to leverage [pgpainle
 
 Using VKS (like [keys.openpgp.org](https://keys.openpgp.org)) and Mailvelope like ([https://keys.mailvelope.com/](https://keys.mailvelope.com/)) compatible key servers to search for the public keys for a recpients mail address. Use `com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService.findByMail(String)` to search for a public key.
 
-### Buildin compliant MIME Messages
+### Building compliant MIME Messages
 
 The `Autocrypt` header is optional and can be added to the MIME message to enable clients to automatically import the public key of the sender. It contains the sender`s mail address and the public key of the sender. It can be added to all kind of messages, signed and encrypted or not.
 
@@ -16,7 +16,7 @@ In general there a two modes to transport PGP encrypted and signed emails:
 
 #### Inline PGP (recommended)
 
-Inline PGP is the most compatible format (tested with [Mailvelope Browser Extension](https://mailvelope.com), Thunderbird and K9 Mail). It is however, less convenient, since they only work with detached encrypted attachments, which need to be seperatly decrypted. and do not support protected headers. Signed-only messages are not available in inline PGP mode. Moreover file names of the attachments are still visible in the email (with an addced `.asc` extension).
+Inline PGP is the most compatible format (tested with [Mailvelope Browser Extension](https://mailvelope.com), Thunderbird and K9 Mail). It is however, less convenient, since they only work with detached encrypted attachments, which need to be seperatly decrypted. File names of the attachments are still visible in the email (with an addced `.asc` extension). Moreover does not support protected headers. Signed-only messages are not available in inline PGP mode. 
 
 #### Multipart PGP
 
