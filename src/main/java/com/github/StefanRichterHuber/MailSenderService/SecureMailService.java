@@ -185,6 +185,19 @@ public class SecureMailService {
             final Iterable<DataSource> attachments,
             final Session session) throws Exception {
 
+        // Validate inputs, one after another
+        if (from == null) {
+            throw new IllegalArgumentException("from must not be null");
+        }
+        if (to == null) {
+            throw new IllegalArgumentException("to must not be null");
+        }
+        if (subject == null || subject.isEmpty()) {
+            throw new IllegalArgumentException("subject must not be null or empty");
+        }
+        if (body == null || body.isEmpty()) {
+            throw new IllegalArgumentException("body must not be null or empty");
+        }
         if (recipientCert == null) {
             throw new IllegalArgumentException("Recipient certificate is required for Inline PGP encryption");
         }

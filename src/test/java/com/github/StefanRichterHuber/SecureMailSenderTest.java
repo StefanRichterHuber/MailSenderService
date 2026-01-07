@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import com.github.StefanRichterHuber.MailSenderService.CRLFOutputStream;
-import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.SecureMailService;
 
 import io.quarkus.test.junit.QuarkusTest;
@@ -32,6 +31,11 @@ public class SecureMailSenderTest {
     @ConfigProperty(name = "mail.to")
     String to;
 
+    /**
+     * Creates an inline signed mail and writes it to disk.
+     * 
+     * @throws Exception
+     */
     @Test
     public void testCreateInlineSignedMail() throws Exception {
 
@@ -39,6 +43,11 @@ public class SecureMailSenderTest {
         writeMailToDisk(mail, true, true);
     }
 
+    /**
+     * Creates a signed and encrypted mail and writes it to disk.
+     * 
+     * @throws Exception
+     */
     @Test
     public void testCreateSignedAndEncryptedMail() throws Exception {
         var mail1 = sendMail(true, false);
@@ -68,6 +77,14 @@ public class SecureMailSenderTest {
         Transport.send(mail);
     }
 
+    /**
+     * Helper method to create a mail.
+     * 
+     * @param withEncryption
+     * @param inline
+     * @return
+     * @throws Exception
+     */
     private MimeMessage sendMail(boolean withEncryption, boolean inline) throws Exception {
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(new File("README.md")));
@@ -81,6 +98,14 @@ public class SecureMailSenderTest {
         return mimeMessage;
     }
 
+    /**
+     * Helper method to write a mail to disk.
+     * 
+     * @param message
+     * @param withEncryption
+     * @param inline
+     * @throws Exception
+     */
     private void writeMailToDisk(MimeMessage message, boolean withEncryption, boolean inline) throws Exception {
         String filename = withEncryption ? "signed_encrypted_email.eml" : "signed_email.eml";
         if (inline) {
