@@ -37,7 +37,7 @@ public class MailSendResource {
                 .map(this::toDataSource)
                 .collect(Collectors.toList()) : Collections.emptyList();
 
-        mailFactory.sendSignedMail(new InternetAddress(to), subject, body, sign, encrypt, attachments);
+        mailFactory.sendMail(new InternetAddress(to), subject, body, sign, encrypt, attachments);
     }
 
     private DataSource toDataSource(FileUpload fileUpload) {

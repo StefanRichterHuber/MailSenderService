@@ -34,6 +34,7 @@ public class SecureMailSenderTest {
 
     @Test
     public void testCreateInlineSignedMail() throws Exception {
+
         var mail = sendMail(true, true);
         writeMailToDisk(mail, true, true);
     }

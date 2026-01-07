@@ -55,15 +55,15 @@ public class SecureMailService {
     /**
      * Sends a signed email message for the configured default sender
      * 
-     * @param to            The recipient's email address.
-     * @param subject       The subject of the email.
-     * @param body          The body of the email.
-     * @param recipientCert The recipient's public key. If null, the email will not
-     *                      be encrypted.
-     * @param attachments   The attachments to the email.
+     * @param to          The recipient's email address.
+     * @param subject     The subject of the email.
+     * @param body        The body of the email.
+     * @param sign        Whether to sign the email.
+     * @param encrypt     Whether to encrypt the email.
+     * @param attachments The attachments to the email. Can be null.
      * @throws Exception If an error occurs.
      */
-    public void sendSignedMail(
+    public void sendMail(
             final InternetAddress to,
             final String subject,
             final String body,
@@ -71,23 +71,59 @@ public class SecureMailService {
             final boolean encrypt,
             final Iterable<DataSource> attachments) throws Exception {
 
-        final boolean inlinePGP = smtpConfig.inlinePGP();
+        // Inline PGP is only supported if encryption is enabled
+        final boolean inlinePGP = smtpConfig.inlinePGP() && encrypt;
+        final boolean pgp = sign || encrypt;
         final boolean addAutocryptHeader = smtpConfig.autocrypt();
 
-        final MimeMessage mimeMessage = createPGPMail(to, subject, body, sign, encrypt, addAutocryptHeader,
-                inlinePGP, attachments);
+        logger.infof("Preparing mail to %s with subject %s. Inline PGP: %b , PGP: %b, Autocrypt: %b", to, subject,
+                inlinePGP, pgp, addAutocryptHeader);
+
+        final MimeMessage mimeMessage = pgp
+                ? createPGPMail(to, subject, body, sign, encrypt, addAutocryptHeader,
+                        inlinePGP, attachments)
+                : createPlainMail(to, subject, body, addAutocryptHeader, attachments);
         Transport.send(mimeMessage);
+    }
+
+    /**
+     * Creates an mail without signing and encryption
+     * 
+     * @param to                 The recipient's email address.
+     * @param subject            The subject of the email.
+     * @param body               The body of the email.
+     * @param addAutocryptHeader Whether to add an autocrypt header.
+     * @param attachments        The attachments to the email. Can be null.
+     * @return
+     * @throws Exception
+     */
+    public MimeMessage createPlainMail(
+            final InternetAddress to,
+            final String subject,
+            final String body,
+            final boolean addAutocryptHeader,
+            final Iterable<DataSource> attachments) throws Exception {
+
+        final InternetAddress from = new InternetAddress(smtpConfig.from());
+        MimeMessage mimeMessage = this.createPGPMail(to, from, subject, body, null, null, attachments, session);
+        if (addAutocryptHeader) {
+            mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), null);
+        }
+        return mimeMessage;
     }
 
     /**
      * Creates a signed email message for the configured default sender
      * 
-     * @param to          The recipient's email address.
-     * @param subject     The subject of the email.
-     * @param body        The body of the email.
-     * @param sign        Whether to sign the email.
-     * @param encrypt     Whether to encrypt the email.
-     * @param attachments The attachments to the email.
+     * @param to                 The recipient's email address.
+     * @param subject            The subject of the email.
+     * @param body               The body of the email.
+     * @param sign               Whether to sign the email.
+     * @param encrypt            Whether to encrypt the email.
+     * @param addAutocryptHeader Whether to add an autocrypt header.
+     * @param inlinePGP          Whether to use inline PGP. (Only usable if
+     *                           encryption is enabled!)
+     * @param attachments        The attachments to the email. Can be null.
      * @throws Exception If an error occurs.
      */
     public MimeMessage createPGPMail(

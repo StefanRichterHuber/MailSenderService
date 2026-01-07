@@ -44,9 +44,19 @@ public interface SMTPConfig {
      */
     String senderSecretKeyPassword();
 
+    /**
+     * List of VKS key servers to use for key lookup.
+     * 
+     * @return
+     */
     @WithDefault("https://keys.openpgp.org")
     List<String> vksKeyServers();
 
+    /**
+     * List of Mailvelope key servers to use for key lookup.
+     * 
+     * @return
+     */
     @WithDefault("https://keys.mailvelope.com")
     List<String> mailvelopeKeyServers();
 
@@ -67,7 +77,7 @@ public interface SMTPConfig {
 
     /**
      * Protects (encrypts) the headers (espec. subject) of the email. Not compatible
-     * with Inline PGP.
+     * with Inline PGP. Not compatible with K9.
      */
     @WithDefault("true")
     boolean protectHeaders();
