@@ -25,6 +25,14 @@ public interface SMTPConfig {
     File recipientPublicKeyFile();
 
     /**
+     * Whether to use Inline PGP. This mode is compatible with Mailvelope.
+     * Attachmemts, however, are added as detached encrypted files and need to be
+     * decrypted separately from the main message.
+     */
+    @WithDefault("true")
+    boolean inlinePGP();
+
+    /**
      * Protects (encrypts) the headers (espec. subject) of the email.
      */
     @WithDefault("true")

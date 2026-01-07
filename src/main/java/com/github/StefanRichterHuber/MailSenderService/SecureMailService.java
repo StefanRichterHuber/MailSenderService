@@ -72,8 +72,10 @@ public class SecureMailService {
             final boolean addAutocryptHeader,
             final Iterable<DataSource> attachments) throws Exception {
 
-        final MimeMessage mimeMessage = createSignedMail(to, subject, body, sign, encrypt, addAutocryptHeader,
-                attachments);
+        final boolean inlinePGP = smtpConfig.inlinePGP();
+
+        final MimeMessage mimeMessage = createPGPMail(to, subject, body, sign, encrypt, addAutocryptHeader,
+                inlinePGP, attachments);
         Transport.send(mimeMessage);
     }
 
@@ -88,13 +90,14 @@ public class SecureMailService {
      * @param attachments The attachments to the email.
      * @throws Exception If an error occurs.
      */
-    public MimeMessage createSignedMail(
+    public MimeMessage createPGPMail(
             final InternetAddress to,
             final String subject,
             final String body,
             final boolean sign,
             final boolean encrypt,
             final boolean addAutocryptHeader,
+            final boolean inlinePGP,
             final Iterable<DataSource> attachments) throws Exception {
 
         final InternetAddress from = new InternetAddress(smtpConfig.from());
@@ -102,8 +105,11 @@ public class SecureMailService {
         final byte[] senderPublicKey = sign ? privateKeyProvider.getPublicKey(smtpConfig.from()) : null;
         final byte[] recipientCert = encrypt ? PublicKeySearchService.findByMail(to.toString()) : null;
 
-        MimeMessage mimeMessage = createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments,
-                session);
+        MimeMessage mimeMessage = inlinePGP
+                ? createInlinePGPMail(from, to, subject, body, senderKey, recipientCert, attachments,
+                        session)
+                : createPGPMail(from, to, subject, body, senderKey, recipientCert, attachments,
+                        session);
 
         if (addAutocryptHeader) {
             mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), senderPublicKey);
@@ -113,51 +119,27 @@ public class SecureMailService {
     }
 
     /**
-     * Creates a signed email message for the configured default sender
-     * 
-     * @param to            The recipient's email address.
-     * @param subject       The subject of the email.
-     * @param body          The body of the email.
-     * @param recipientCert The recipient's public key. If null, the email will not
-     *                      be encrypted.
-     * @param attachments   The attachments to the email.
-     * @return The secure email message.
-     * @throws Exception If an error occurs.
-     */
-    public MimeMessage createSignedMail(
-            final InternetAddress to,
-            final String subject,
-            final String body,
-            final byte[] recipientCert,
-            final Iterable<DataSource> attachments,
-            final Session session) throws Exception {
-
-        final InternetAddress from = new InternetAddress(smtpConfig.from());
-        final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.from());
-        return createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments, session);
-    }
-
-    /**
-     * Creates an "Inline PGP" email compatible with Mailvelope.
-     * Note: This format does NOT support Protected Headers or embedded MIME
-     * attachments
-     * in the same way PGP/MIME does.
+     * Creates an "Inline PGP" email compatible with Mailvelope. But also with
+     * Thunderbird and K9.
+     * Note: This format does NOT support Protected Headers or embedded(!) MIME
+     * attachments. Attachments are added as detached encrypted files and need to
+     * be decrypted separately from the main message.
      * 
      * @param from          The sender's email address. Required.
      * @param to            The recipient's email address. Required.
-     * @param subject       The subject of the email. Required.
+     * @param subject       The subject of the email. Required. Will not be
+     *                      encrypted.
      * @param body          The body of the email. Required.
      * @param senderKey     The sender's private key. If null, the email
      *                      will not
      *                      be signed.
-     * @param recipientCert The recipient's public key. If null, the email will not
-     *                      be encrypted.
+     * @param recipientCert The recipient's public key. Required.
      * @param attachments   The attachments to the email. Optional.
      * @param session       The session to use for creating the message.
      * @return The secure email message.
      * @throws Exception If an error occurs.
      */
-    public MimeMessage createInlineSignedMail(
+    public MimeMessage createInlinePGPMail(
             final InternetAddress from,
             final InternetAddress to,
             final String subject,
@@ -170,7 +152,7 @@ public class SecureMailService {
         if (recipientCert == null) {
             throw new IllegalArgumentException("Recipient certificate is required for Inline PGP encryption");
         }
-        MimeMultipart rootMultipart = new MimeMultipart("mixed");
+        final MimeMultipart rootMultipart = new MimeMultipart("mixed");
 
         // 1. Sign and Encrypt the body text directly
         // Inline PGP usually implies we are encrypting the text content.
@@ -216,7 +198,8 @@ public class SecureMailService {
         mainBodyPart.setContent(contentMultipart);
         rootMultipart.addBodyPart(mainBodyPart);
 
-        // --- 3. Process and Add Attachments ---
+        // --- 3. Process and Add Attachments. Attachments are added as detached
+        // encrypted files and need to be decrypted separately from the main message ---
         if (attachments != null) {
             for (DataSource attachment : attachments) {
                 // Encrypt the attachment file individually
@@ -236,10 +219,10 @@ public class SecureMailService {
                         .getBytes();
 
                 // Create the attachment part
-                MimeBodyPart attachPart = new MimeBodyPart();
+                final MimeBodyPart attachPart = new MimeBodyPart();
 
                 // Construct the data source
-                ByteArrayDataSource encryptedDs = new ByteArrayDataSource(
+                final ByteArrayDataSource encryptedDs = new ByteArrayDataSource(
                         encryptedAttachBytes,
                         "application/octet-stream");
 
@@ -287,7 +270,7 @@ public class SecureMailService {
      * @return The secure email message.
      * @throws Exception If an error occurs.
      */
-    public MimeMessage createSignedMail(
+    public MimeMessage createPGPMail(
             final InternetAddress from,
             final InternetAddress to,
             final String subject,
