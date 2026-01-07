@@ -49,7 +49,7 @@ public class SecureMailSenderTest {
         final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.from());
         var mail = secureMailSender.createInlineSignedMail(new InternetAddress(smtpConfig.from()),
                 new InternetAddress(to), "Secure Document", "Here is the requested document.",
-                senderKey, recipientCert, session);
+                senderKey, recipientCert, null, session);
         writeMailToDisk(mail, true);
     }
 
@@ -72,9 +72,12 @@ public class SecureMailSenderTest {
     void testSendInlineSignedMail() throws Exception {
         byte[] recipientCert = PublicKeySearchService.findByMail(to);
         final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.from());
+
+        List<DataSource> attachments = new ArrayList<>();
+        attachments.add(new FileDataSource(new File("README.md")));
         var mail = secureMailSender.createInlineSignedMail(new InternetAddress(smtpConfig.from()),
                 new InternetAddress(to), "Secure Document", "Here is the requested document.",
-                senderKey, recipientCert, session);
+                senderKey, recipientCert, attachments, session);
         Transport.send(mail);
     }
 

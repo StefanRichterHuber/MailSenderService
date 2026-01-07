@@ -152,6 +152,7 @@ public class SecureMailService {
      *                      be signed.
      * @param recipientCert The recipient's public key. If null, the email will not
      *                      be encrypted.
+     * @param attachments   The attachments to the email. Optional.
      * @param session       The session to use for creating the message.
      * @return The secure email message.
      * @throws Exception If an error occurs.
@@ -163,11 +164,13 @@ public class SecureMailService {
             final String body,
             final byte[] senderKey,
             final byte[] recipientCert,
+            final Iterable<DataSource> attachments,
             final Session session) throws Exception {
 
         if (recipientCert == null) {
             throw new IllegalArgumentException("Recipient certificate is required for Inline PGP encryption");
         }
+        MimeMultipart rootMultipart = new MimeMultipart("mixed");
 
         // 1. Sign and Encrypt the body text directly
         // Inline PGP usually implies we are encrypting the text content.
@@ -209,12 +212,57 @@ public class SecureMailService {
         htmlPart.setContent(htmlContent, "text/html; charset=UTF-8");
         contentMultipart.addBodyPart(htmlPart);
 
+        MimeBodyPart mainBodyPart = new MimeBodyPart();
+        mainBodyPart.setContent(contentMultipart);
+        rootMultipart.addBodyPart(mainBodyPart);
+
+        // --- 3. Process and Add Attachments ---
+        if (attachments != null) {
+            for (DataSource attachment : attachments) {
+                // Encrypt the attachment file individually
+                // We use binary mode for attachments usually, but .asc (text mode)
+                // is safer for email transport to avoid corruption.
+                final Encrypt fileEncryptBuilder = sop.encrypt()
+                        .withCert(recipientCert);
+
+                if (senderKey != null) {
+                    fileEncryptBuilder.signWith(extractPrivateKey(senderKey))
+                            .withKeyPassword(smtpConfig.senderSecretKeyPassword());
+                }
+
+                final byte[] encryptedAttachBytes = fileEncryptBuilder.mode(EncryptAs.binary)
+                        .plaintext(attachment.getInputStream())
+                        .toByteArrayAndResult()
+                        .getBytes();
+
+                // Create the attachment part
+                MimeBodyPart attachPart = new MimeBodyPart();
+
+                // Construct the data source
+                ByteArrayDataSource encryptedDs = new ByteArrayDataSource(
+                        encryptedAttachBytes,
+                        "application/octet-stream");
+
+                // Set the filename - typically append .asc or .gpg
+                // WARNING: The original filename is visible here.
+                // If the name is sensitive, change it to "attachment1.pdf.asc"
+                String fileName = attachment.getName() + ".asc";
+
+                attachPart.setDataHandler(new jakarta.activation.DataHandler(encryptedDs));
+                attachPart.setFileName(fileName);
+                attachPart.setHeader("Content-Type", "application/octet-stream; name=\"" + fileName + "\"");
+                attachPart.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+
+                rootMultipart.addBodyPart(attachPart);
+            }
+        }
+
         // 3. Finalize Message
         final MimeMessage message = new MimeMessage(session);
         message.setFrom(from);
         message.addRecipient(MimeMessage.RecipientType.TO, to);
         message.setSubject(subject); // Note: Subject is NOT hidden in Inline PGP
-        message.setContent(contentMultipart);
+        message.setContent(rootMultipart);
         message.saveChanges();
 
         return message;
@@ -246,7 +294,7 @@ public class SecureMailService {
             final String body,
             final byte[] senderKey,
             final byte[] recipientCert,
-            Iterable<DataSource> attachments,
+            final Iterable<DataSource> attachments,
             Session session) throws Exception {
         // --- Inputs ---
         // Validate inputs, one after another
