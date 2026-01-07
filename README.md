@@ -6,23 +6,27 @@ This Java project based on the Quarkus framework shows how to leverage [pgpainle
 
 ### Searching for public keys
 
-Using VKS (like [keys.openpgp.org](https://keys.openpgp.org)) and Mailvelope like ([https://keys.mailvelope.com/](https://keys.mailvelope.com/)) compatible key servers to search for the public keys for a recpients mail address. Use `com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService.findByMail(String)` to search for a public key.
+In order to encrypt a message, the public key of the recipient is required. These keys could be either provided by the recipient itself (manually or via Autocrypt header in the message) or retrieved from a public key server. Retrieving the key from the recipient is not in scope of this project. It is expected that the public key is available on a (public) key server.
+
+This project uses VKS (like [keys.openpgp.org](https://keys.openpgp.org)) and Mailvelope (like [https://keys.mailvelope.com/](https://keys.mailvelope.com/)) compatible key servers to search for the public keys for a recpients mail address. Use `com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService.findByMail(String)` to search for a public key. [Quarkus Application Data Caching](https://quarkus.io/guides/cache) is used to cache the looked up public keys to avoid both uneccessary load on this free servers as well as to speed up the lookup process.
 
 ### Building compliant MIME Messages
-
-The `Autocrypt` header is optional and can be added to the MIME message to enable clients to automatically import the public key of the sender. It contains the sender`s mail address and the public key of the sender. It can be added to all kind of messages, signed and encrypted or not.
 
 In general there a two modes to transport PGP encrypted and signed emails:
 
 #### Inline PGP (recommended)
 
-Inline PGP is the most compatible format (tested with [Mailvelope Browser Extension](https://mailvelope.com), Thunderbird and K9 Mail). It is however, less convenient, since they only work with detached encrypted attachments, which need to be seperatly decrypted. File names of the attachments are still visible in the email (with an addced `.asc` extension). Moreover does not support protected headers. Signed-only messages are not available in inline PGP mode. 
+Inline PGP is the most compatible format (tested with [Mailvelope Browser Extension](https://mailvelope.com), Thunderbird and K9 Mail). This is an older, legacy method where the encrypted ASCII block is simply pasted into the `text/plain` or `text/html` body of the email. It is more compatible with web clients and therefore the Mailvelope Browser Extension. It is however, less secure, since it only works with detached encrypted attachments, which need to be seperatly decrypted. File names of the attachments are still visible in the email (with an addced `.asc` extension). Moreover inline PGP does not support protected headers (so the actual `Subject` header is always visible) and signed-only messages.
 
-#### Multipart PGP
+#### PGP/MIME
 
-Multipart PGP is the most secure format, however, less compatible (tested with K9 Mail and Thunderbird). It supports protected headers (not with K9 Mail) and encrypted attachments. Compatible clients can decrypt, verify the signature and display the message and the attachments all in one go. File names of the attachments are not visible in the email. Signed-only messages are available in multipart PGP mode.
+PGP/MIME (RFC 3156) is the most secure and modern format, however, less compatible (tested with K9 Mail and Thunderbird). It supports protected headers, especially the `Subject` header (as of now, not available for K9 Mail) and fully encrypted attachments (both file content and file name). Compatible clients can decrypt, verify the signature and display the message and the attachments all in one go. Signed-only messages are available in PGP/MIME mode.
 
 See class `com.github.StefanRichterHuber.MailSenderService.SecureMailService` to build a MIME message which can be signed and / or encrypted, including encrypted attachments with an optional Autocrypt header. Both encrypted and signed multipart messages including attachments and protected headers as well as inline PGP with detached signatures are supported.
+
+#### Autocrypt
+
+The `Autocrypt` header is optional and can be added to the MIME message to enable clients to automatically import the public key of the sender. It contains the sender`s mail address and the public key of the sender. It can be added to all kind of messages, signed and encrypted or not.
 
 ### Sending an email
 
