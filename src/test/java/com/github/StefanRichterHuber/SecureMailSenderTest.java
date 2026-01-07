@@ -10,6 +10,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.junit.jupiter.api.Test;
 
 import com.github.StefanRichterHuber.MailSenderService.CRLFOutputStream;
+import com.github.StefanRichterHuber.MailSenderService.PrivateKeyProvider;
 import com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService;
 import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.SecureMailService;
@@ -39,8 +40,21 @@ public class SecureMailSenderTest {
     @Inject
     Session session;
 
+    @Inject
+    PrivateKeyProvider privateKeyProvider;
+
     @Test
-    public void testSendSignedAndEncryptedMail() throws Exception {
+    public void testCreateInlineSignedMail() throws Exception {
+        byte[] recipientCert = PublicKeySearchService.findByMail(to);
+        final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.from());
+        var mail = secureMailSender.createInlineSignedMail(new InternetAddress(smtpConfig.from()),
+                new InternetAddress(to), "Secure Document", "Here is the requested document.",
+                senderKey, recipientCert, session);
+        writeMailToDisk(mail, true);
+    }
+
+    @Test
+    public void testCreateSignedAndEncryptedMail() throws Exception {
         var mail1 = sendMail(true, session);
         var mail2 = sendMail(false, session);
 
@@ -55,7 +69,17 @@ public class SecureMailSenderTest {
     }
 
     @Test
-    public void actuallSendMail() throws Exception {
+    void testSendInlineSignedMail() throws Exception {
+        byte[] recipientCert = PublicKeySearchService.findByMail(to);
+        final byte[] senderKey = privateKeyProvider.getPrivateKey(smtpConfig.from());
+        var mail = secureMailSender.createInlineSignedMail(new InternetAddress(smtpConfig.from()),
+                new InternetAddress(to), "Secure Document", "Here is the requested document.",
+                senderKey, recipientCert, session);
+        Transport.send(mail);
+    }
+
+    @Test
+    public void testSendMail() throws Exception {
         var mail = sendMail(true, session);
         Transport.send(mail);
     }

@@ -30,6 +30,7 @@ import jakarta.mail.util.ByteArrayDataSource;
 import sop.SOP;
 import sop.enums.EncryptAs;
 import sop.enums.SignAs;
+import sop.operation.Encrypt;
 
 @ApplicationScoped
 public class SecureMailService {
@@ -137,9 +138,93 @@ public class SecureMailService {
     }
 
     /**
+     * Creates an "Inline PGP" email compatible with Mailvelope.
+     * Note: This format does NOT support Protected Headers or embedded MIME
+     * attachments
+     * in the same way PGP/MIME does.
+     * 
+     * @param from          The sender's email address. Required.
+     * @param to            The recipient's email address. Required.
+     * @param subject       The subject of the email. Required.
+     * @param body          The body of the email. Required.
+     * @param senderKey     The sender's private key. If null, the email
+     *                      will not
+     *                      be signed.
+     * @param recipientCert The recipient's public key. If null, the email will not
+     *                      be encrypted.
+     * @param session       The session to use for creating the message.
+     * @return The secure email message.
+     * @throws Exception If an error occurs.
+     */
+    public MimeMessage createInlineSignedMail(
+            final InternetAddress from,
+            final InternetAddress to,
+            final String subject,
+            final String body,
+            final byte[] senderKey,
+            final byte[] recipientCert,
+            final Session session) throws Exception {
+
+        if (recipientCert == null) {
+            throw new IllegalArgumentException("Recipient certificate is required for Inline PGP encryption");
+        }
+
+        // 1. Sign and Encrypt the body text directly
+        // Inline PGP usually implies we are encrypting the text content.
+        final byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+
+        // Prepare encryption
+        // Note: For Inline PGP, we typically want the ASCII Armored output immediately
+        final Encrypt encryptBuilder = sop.encrypt()
+                .withCert(recipientCert)
+                .mode(EncryptAs.text);
+
+        // If we have a sender key, sign the data *inside* the encryption envelope
+        if (senderKey != null) {
+            encryptBuilder.signWith(extractPrivateKey(senderKey))
+                    .withKeyPassword(smtpConfig.senderSecretKeyPassword());
+        }
+
+        // Generate the ASCII Armored Block
+        final byte[] encryptedBytes = encryptBuilder
+                .plaintext(bodyBytes)
+                .toByteArrayAndResult()
+                .getBytes();
+
+        final String encryptedAscii = new String(encryptedBytes, StandardCharsets.UTF_8);
+
+        // 2. Create the Multipart/Alternative structure
+        // This allows clients to see the block in plain text or HTML
+        final MimeMultipart contentMultipart = new MimeMultipart("alternative");
+
+        // Part A: Plain Text (The raw PGP block)
+        final MimeBodyPart textPart = new MimeBodyPart();
+        textPart.setText(encryptedAscii, "UTF-8");
+        contentMultipart.addBodyPart(textPart);
+
+        // Part B: HTML (The PGP block wrapped in <pre>)
+        // This ensures webmails display the block cleanly for Mailvelope to detect
+        final MimeBodyPart htmlPart = new MimeBodyPart();
+        final String htmlContent = "<html><body><pre>" + encryptedAscii + "</pre></body></html>";
+        htmlPart.setContent(htmlContent, "text/html; charset=UTF-8");
+        contentMultipart.addBodyPart(htmlPart);
+
+        // 3. Finalize Message
+        final MimeMessage message = new MimeMessage(session);
+        message.setFrom(from);
+        message.addRecipient(MimeMessage.RecipientType.TO, to);
+        message.setSubject(subject); // Note: Subject is NOT hidden in Inline PGP
+        message.setContent(contentMultipart);
+        message.saveChanges();
+
+        return message;
+    }
+
+    /**
      * Creates a signed email message. Signs the message if a sender key is
      * provided. Encrypts the message if a recipient
-     * certificate is provided.
+     * certificate is provided. Works perfectly with K9 and Thunderbird but
+     * Mailvelope does not support it.
      * 
      * @param from          The sender's email address. Required.
      * @param to            The recipient's email address. Required.
