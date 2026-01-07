@@ -21,6 +21,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Session;
+import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
@@ -31,7 +32,7 @@ import sop.enums.EncryptAs;
 import sop.enums.SignAs;
 
 @ApplicationScoped
-public class SecureMailSender {
+public class SecureMailService {
 
     @Inject
     SMTPConfig smtpConfig;
@@ -42,13 +43,76 @@ public class SecureMailSender {
     @Inject
     PrivateKeyProvider privateKeyProvider;
 
+    @Inject
+    Session session;
+
     static {
         Security.addProvider(new BouncyCastleProvider());
     }
     private static final SOP sop = new org.pgpainless.sop.SOPImpl();
 
     /**
-     * Creates a secure email message for the configured default sender
+     * Sends a signed email message for the configured default sender
+     * 
+     * @param to            The recipient's email address.
+     * @param subject       The subject of the email.
+     * @param body          The body of the email.
+     * @param recipientCert The recipient's public key. If null, the email will not
+     *                      be encrypted.
+     * @param attachments   The attachments to the email.
+     * @throws Exception If an error occurs.
+     */
+    public void sendSignedMail(
+            final InternetAddress to,
+            final String subject,
+            final String body,
+            final boolean sign,
+            final boolean encrypt,
+            final boolean addAutocryptHeader,
+            final Iterable<DataSource> attachments) throws Exception {
+
+        final MimeMessage mimeMessage = createSignedMail(to, subject, body, sign, encrypt, addAutocryptHeader,
+                attachments);
+        Transport.send(mimeMessage);
+    }
+
+    /**
+     * Creates a signed email message for the configured default sender
+     * 
+     * @param to          The recipient's email address.
+     * @param subject     The subject of the email.
+     * @param body        The body of the email.
+     * @param sign        Whether to sign the email.
+     * @param encrypt     Whether to encrypt the email.
+     * @param attachments The attachments to the email.
+     * @throws Exception If an error occurs.
+     */
+    public MimeMessage createSignedMail(
+            final InternetAddress to,
+            final String subject,
+            final String body,
+            final boolean sign,
+            final boolean encrypt,
+            final boolean addAutocryptHeader,
+            final Iterable<DataSource> attachments) throws Exception {
+
+        final InternetAddress from = new InternetAddress(smtpConfig.from());
+        final byte[] senderKey = sign ? privateKeyProvider.getPrivateKey(smtpConfig.from()) : null;
+        final byte[] senderPublicKey = sign ? privateKeyProvider.getPublicKey(smtpConfig.from()) : null;
+        final byte[] recipientCert = encrypt ? PublicKeySearchService.findByMail(to.toString()) : null;
+
+        MimeMessage mimeMessage = createSignedMail(from, to, subject, body, senderKey, recipientCert, attachments,
+                session);
+
+        if (addAutocryptHeader) {
+            mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), senderPublicKey);
+        }
+
+        return mimeMessage;
+    }
+
+    /**
+     * Creates a signed email message for the configured default sender
      * 
      * @param to            The recipient's email address.
      * @param subject       The subject of the email.
@@ -73,13 +137,16 @@ public class SecureMailSender {
     }
 
     /**
-     * Creates a secure email message.
+     * Creates a signed email message. Signs the message if a sender key is
+     * provided. Encrypts the message if a recipient
+     * certificate is provided.
      * 
      * @param from          The sender's email address. Required.
      * @param to            The recipient's email address. Required.
      * @param subject       The subject of the email. Required.
      * @param body          The body of the email. Required.
-     * @param senderKey     The sender's private key. If null, the email will not
+     * @param senderKey     The sender's private key. If null, the email
+     *                      will not
      *                      be signed.
      * @param recipientCert The recipient's public key. If null, the email will not
      *                      be encrypted.
@@ -224,14 +291,15 @@ public class SecureMailSender {
 
             // Part 1: Version info
             MimeBodyPart versionPart = new MimeBodyPart();
-            versionPart.setHeader("Content-Type", "application/pgp-encrypted");
-            versionPart.setText("Version: 1"); // Standard PGP/MIME header
+            versionPart.setContent("Version: 1", "application/pgp-encrypted"); // Standard PGP/MIME header
+            versionPart.setDescription("PGP/MIME version identification");
             encryptedMultipart.addBodyPart(versionPart);
 
             // Part 2: Encrypted data
             MimeBodyPart encryptedDataPart = new MimeBodyPart();
             encryptedDataPart.setHeader("Content-Type", "application/octet-stream; name=\"encrypted.asc\"");
             encryptedDataPart.setHeader("Content-Disposition", "inline; filename=\"encrypted.asc\"");
+            encryptedDataPart.setDescription("OpenPGP encrypted message");
             encryptedDataPart.setDataHandler(
                     new jakarta.activation.DataHandler(
                             new ByteArrayDataSource(encryptedData, "application/octet-stream")));
@@ -273,7 +341,7 @@ public class SecureMailSender {
      * @throws MessagingException If the header cannot be set.
      * @throws IOException        If there is an error reading the byte stream.
      */
-    public MimeMessage addAutocryptHeader(MimeMessage message)
+    public MimeMessage addAutocryptHeader(final MimeMessage message)
             throws MessagingException, IOException {
 
         final String senderMail = smtpConfig.from();
@@ -303,6 +371,10 @@ public class SecureMailSender {
      */
     private MimeMessage addAutocryptHeader(MimeMessage message, String senderEmail, byte[] publicKeyBytes)
             throws MessagingException {
+        if (publicKeyBytes == null || publicKeyBytes.length == 0) {
+            logger.warnf("No public key provided for sender: %s. Unable to add Autocrypt header.", senderEmail);
+            return message;
+        }
         // 1. Encode the raw key bytes to Base64
         // The Autocrypt spec requires the keydata to be the Base64 representation of
         // the binary key (without headers like '-----BEGIN PGP PUBLIC KEY BLOCK-----')
@@ -346,7 +418,10 @@ public class SecureMailSender {
      * Extracts the ASCII Armored Public Key block from a mixed key file, since
      * OpenPGPainless only supports public key only files.
      */
-    private static byte[] extractPublicKey(byte[] keyFileBytes) {
+    private byte[] extractPublicKey(byte[] keyFileBytes) {
+        if (keyFileBytes == null || keyFileBytes.length == 0) {
+            return null;
+        }
         final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
 
         // Regex to find the private key block (DOTALL mode allows . to match newlines)
@@ -358,7 +433,8 @@ public class SecureMailSender {
         if (matcher.find()) {
             return matcher.group(1).getBytes(StandardCharsets.UTF_8);
         } else {
-            throw new IllegalArgumentException("No PGP PUBLIC KEY BLOCK found in the provided file.");
+            logger.warnf("No PGP PUBLIC KEY BLOCK found in the provided file: %s", new String(keyFileBytes));
+            return null;
         }
     }
 
@@ -368,6 +444,9 @@ public class SecureMailSender {
      * @throws IOException
      */
     private static byte[] decodePublicKey(byte[] keyFileBytes) throws IOException {
+        if (keyFileBytes == null || keyFileBytes.length == 0) {
+            return null;
+        }
         final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
         if (content.trim().startsWith("-----BEGIN PGP PUBLIC KEY BLOCK-----")) {
             return dearmorKey(keyFileBytes);
@@ -386,6 +465,9 @@ public class SecureMailSender {
      * @throws IOException If there is an error reading the byte stream.
      */
     public static byte[] dearmorKey(byte[] armoredKeyBytes) throws IOException {
+        if (armoredKeyBytes == null || armoredKeyBytes.length == 0) {
+            return null;
+        }
         final BufferedReader reader = new BufferedReader(
                 new InputStreamReader(new ByteArrayInputStream(armoredKeyBytes), StandardCharsets.US_ASCII));
 

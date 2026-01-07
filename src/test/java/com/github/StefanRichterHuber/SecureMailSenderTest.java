@@ -5,7 +5,6 @@ import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.junit.jupiter.api.Test;
@@ -13,13 +12,12 @@ import org.junit.jupiter.api.Test;
 import com.github.StefanRichterHuber.MailSenderService.CRLFOutputStream;
 import com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService;
 import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
-import com.github.StefanRichterHuber.MailSenderService.SecureMailSender;
+import com.github.StefanRichterHuber.MailSenderService.SecureMailService;
 
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.activation.DataSource;
 import jakarta.activation.FileDataSource;
 import jakarta.inject.Inject;
-import jakarta.mail.PasswordAuthentication;
 import jakarta.mail.Session;
 import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
@@ -29,7 +27,7 @@ import jakarta.mail.internet.MimeMessage;
 public class SecureMailSenderTest {
 
     @Inject
-    SecureMailSender secureMailSender;
+    SecureMailService secureMailSender;
 
     @Inject
     SMTPConfig smtpConfig;
@@ -38,9 +36,11 @@ public class SecureMailSenderTest {
     @ConfigProperty(name = "mail.to")
     String to;
 
+    @Inject
+    Session session;
+
     @Test
     public void testSendSignedAndEncryptedMail() throws Exception {
-        Session session = Session.getDefaultInstance(new Properties());
         var mail1 = sendMail(true, session);
         var mail2 = sendMail(false, session);
 
@@ -56,21 +56,6 @@ public class SecureMailSenderTest {
 
     @Test
     public void actuallSendMail() throws Exception {
-        Properties prop = new Properties();
-        prop.put("mail.smtp.auth", smtpConfig.authEnabled());
-        prop.put("mail.smtp.ssl.enable", smtpConfig.sslEnabled());
-        prop.put("mail.smtp.host", smtpConfig.host());
-        prop.put("mail.smtp.port", smtpConfig.port());
-        prop.put("mail.smtp.starttls.enable", smtpConfig.startTlsEnabled());
-        prop.put("mail.smtp.ssl.trust",
-                smtpConfig.sslTrust() != null && !smtpConfig.sslTrust().isEmpty() ? smtpConfig.sslTrust() : null);
-
-        Session session = Session.getInstance(prop, new jakarta.mail.Authenticator() {
-            protected PasswordAuthentication getPasswordAuthentication() {
-                return new PasswordAuthentication(smtpConfig.user(), smtpConfig.password());
-            }
-        });
-
         var mail = sendMail(true, session);
         Transport.send(mail);
     }
@@ -81,7 +66,7 @@ public class SecureMailSenderTest {
 
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(new File("README.md")));
-        attachments.add(new FileDataSource(new File("pom.xml")));
+        // attachments.add(new FileDataSource(new File("pom.xml")));
 
         MimeMessage mimeMessage = secureMailSender.createSignedMail(new InternetAddress(to),
                 "Secure Document", "Here is the requested document.",
