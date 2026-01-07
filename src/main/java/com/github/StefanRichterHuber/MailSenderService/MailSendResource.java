@@ -30,7 +30,6 @@ public class MailSendResource {
             @RestForm String body,
             @RestForm boolean sign,
             @RestForm boolean encrypt,
-            @RestForm boolean autocrypt,
             @RestForm(FileUpload.ALL) List<FileUpload> files) throws AddressException, Exception {
 
         // Convert all FileUpload to DataSource
@@ -38,7 +37,7 @@ public class MailSendResource {
                 .map(this::toDataSource)
                 .collect(Collectors.toList()) : Collections.emptyList();
 
-        mailFactory.sendSignedMail(new InternetAddress(to), subject, body, sign, encrypt, autocrypt, attachments);
+        mailFactory.sendSignedMail(new InternetAddress(to), subject, body, sign, encrypt, attachments);
     }
 
     private DataSource toDataSource(FileUpload fileUpload) {

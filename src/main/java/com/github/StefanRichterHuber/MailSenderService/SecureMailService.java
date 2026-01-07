@@ -69,10 +69,10 @@ public class SecureMailService {
             final String body,
             final boolean sign,
             final boolean encrypt,
-            final boolean addAutocryptHeader,
             final Iterable<DataSource> attachments) throws Exception {
 
         final boolean inlinePGP = smtpConfig.inlinePGP();
+        final boolean addAutocryptHeader = smtpConfig.autocrypt();
 
         final MimeMessage mimeMessage = createPGPMail(to, subject, body, sign, encrypt, addAutocryptHeader,
                 inlinePGP, attachments);

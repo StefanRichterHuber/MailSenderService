@@ -1,22 +1,27 @@
 package com.github.StefanRichterHuber.MailSenderService.keysearch;
 
 import java.io.IOException;
-import java.util.Optional;
+import java.net.URI;
 
-import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.RestResponse;
 
 import com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService;
+import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeySearchResponse;
 import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeyServerService;
 
 import io.quarkus.cache.CacheResult;
+import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 
+/**
+ * This service tries to find public keys for a mail on all Mailvelope key
+ * server compatible servers
+ */
 @ApplicationScoped
 public class MailvelopPublicKeySearchService implements PublicKeySearchService {
 
@@ -24,31 +29,37 @@ public class MailvelopPublicKeySearchService implements PublicKeySearchService {
     Logger logger;
 
     @Inject
-    @RestClient
-    MailvelopeKeyServerService mailvelopeKeyServerService;
+    SMTPConfig smtpConfig;
 
     @Override
-    @CacheResult(cacheName = "mail-public-key-cache")
+    @CacheResult(cacheName = "mailvelope-public-key-cache")
     public byte[] searchKeyByEmail(String email) {
         if (email == null || email.isEmpty()) {
             return null;
         }
-        try {
-            RestResponse<MailvelopeKeySearchResponse> response = mailvelopeKeyServerService.searchKeyByEmail(email);
-            if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
-                logger.infof("Public Key found for email: %s on keys.mailvelope.com", email);
-                final String armouredKey = response.getEntity().publicKeyArmored();
-                return PublicKeySearchService.dearmorKey(armouredKey.getBytes());
+        for (String mailvelopeServer : smtpConfig.mailvelopeKeyServers()) {
+            final MailvelopeKeyServerService mailvelopeKeyServerService = QuarkusRestClientBuilder.newBuilder()
+                    .baseUri(URI.create(mailvelopeServer))
+                    .build(MailvelopeKeyServerService.class);
+            try {
+                final RestResponse<MailvelopeKeySearchResponse> response = mailvelopeKeyServerService
+                        .searchKeyByEmail(email);
+                if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
+                    logger.infof("Public Key found for email: %s on %s", email, mailvelopeServer);
+                    final String armouredKey = response.getEntity().publicKeyArmored();
+                    return PublicKeySearchService.dearmorKey(armouredKey.getBytes());
+                }
+                logger.debugf("Public Key not found for email: %s on %s", email, mailvelopeServer);
+                continue;
+            } catch (WebApplicationException e) {
+                logger.debugf("Public Key not found for email: %s on %s ", email, mailvelopeServer);
+                continue;
+            } catch (IOException e) {
+                logger.errorf(e, "Failed to parse public key for email: %s on %s", email, mailvelopeServer);
+                throw new RuntimeException(e);
             }
-            logger.infof("Public Key not found for email: %s on keys.mailvelope.com", email);
-            return null;
-        } catch (WebApplicationException e) {
-            logger.infof("Public Key not found for email: %s on keys.mailvelope.com", email);
-            return null;
-        } catch (IOException e) {
-            logger.errorf(e, "Failed to parse public key for email: %s on keys.mailvelope.com", email);
-            throw new RuntimeException(e);
         }
+        return null;
     }
 
 }
