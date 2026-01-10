@@ -28,9 +28,6 @@ See class `com.github.StefanRichterHuber.MailSenderService.SecureMailService` to
 
 The `Autocrypt` header is optional and can be added to the MIME message to enable clients to automatically import the public key of the sender. It contains the sender`s mail address and the public key of the sender. It can be added to all kind of messages, signed and encrypted or not.
 
-### Sending an email
-
-See class `com.github.StefanRichterHuber.MailSenderService.SessionFactory` to build a `jakarta.mail.Session` and `com.github.StefanRichterHuber.MailSenderService.SMTPService` to send an email.
 
 ## Testing
 
