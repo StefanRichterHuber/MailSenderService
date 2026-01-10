@@ -9,15 +9,23 @@ import java.util.Base64;
 
 import jakarta.enterprise.inject.spi.CDI;
 
+/**
+ * Interface for public key search services.
+ */
 public interface PublicKeySearchService {
 
     /**
-     * Searches for a public key by email. Returns the raw key data.
+     * Searches for a public key by email using all available implementations.
+     * Returns the raw key data.
      * 
-     * @param email
-     * @return
+     * @param email The email address to search for.
+     * @return The raw key data, or null if no key was found.
      */
-    public static byte[] findByMail(String email) {
+    public static byte[] findByMail(final String email) {
+        if (email == null || email.isEmpty()) {
+            return null;
+        }
+
         return CDI.current().select(PublicKeySearchService.class).stream()
                 .map(service -> service.searchKeyByEmail(email))
                 .filter(v -> v != null).findFirst().orElse(null);

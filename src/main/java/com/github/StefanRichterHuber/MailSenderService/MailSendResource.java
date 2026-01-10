@@ -23,6 +23,20 @@ public class MailSendResource {
     @Inject
     SecureMailService mailFactory;
 
+    /**
+     * Sends a mail with the given parameters.
+     * 
+     * Warning: This endpoint is not secure! Only use it in a trusted environment!
+     * 
+     * @param to      The recipient's email address.
+     * @param subject The subject of the email.
+     * @param body    The body of the email.
+     * @param sign    Whether to sign the email.
+     * @param encrypt Whether to encrypt the email.
+     * @param files   The attachments to the email. Can be null.
+     * @throws AddressException
+     * @throws Exception
+     */
     @POST
     public void multipart(
             @RestForm String to,

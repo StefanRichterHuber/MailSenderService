@@ -4,6 +4,9 @@ import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
+/**
+ * A stream wrapperthat ensures CRLF line endings are used.
+ */
 public class CRLFOutputStream extends FilterOutputStream {
     private int lastByte = -1;
 

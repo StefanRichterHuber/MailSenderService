@@ -8,15 +8,24 @@ import jakarta.inject.Inject;
 import jakarta.mail.PasswordAuthentication;
 import jakarta.mail.Session;
 
+/**
+ * Factory for creating a mail session.
+ */
 public class SessionFactory {
 
+    /**
+     * Configuration for the SMTP server.
+     */
     @Inject
     SMTPConfig smtpConfig;
 
+    /**
+     * Creates a mail session.
+     */
     @Produces
     @ApplicationScoped
     Session createMailSession() {
-        Properties prop = new Properties();
+        final Properties prop = new Properties();
         prop.put("mail.smtp.auth", smtpConfig.authEnabled());
         prop.put("mail.smtp.ssl.enable", smtpConfig.sslEnabled());
         prop.put("mail.smtp.host", smtpConfig.host());
@@ -25,7 +34,7 @@ public class SessionFactory {
         prop.put("mail.smtp.ssl.trust",
                 smtpConfig.sslTrust() != null && !smtpConfig.sslTrust().isEmpty() ? smtpConfig.sslTrust() : null);
 
-        Session session = Session.getInstance(prop, new jakarta.mail.Authenticator() {
+        final Session session = Session.getInstance(prop, new jakarta.mail.Authenticator() {
             protected PasswordAuthentication getPasswordAuthentication() {
                 return new PasswordAuthentication(smtpConfig.user(), smtpConfig.password());
             }

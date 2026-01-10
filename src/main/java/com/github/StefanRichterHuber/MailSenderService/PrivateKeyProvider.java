@@ -12,6 +12,13 @@ import io.quarkus.cache.CacheResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+/**
+ * Provides the private and public key for the configured sender email. This
+ * implementation fetches a mixed key file (ascii-armored private key and public
+ * key) from the configured sender secret key file and extracts the public and
+ * private key
+ * from it.
+ */
 @ApplicationScoped
 public class PrivateKeyProvider {
 
@@ -27,7 +34,7 @@ public class PrivateKeyProvider {
      * @param senderEmail The sender email
      * @return The private key for the given sender email, if found
      */
-    @CacheResult(cacheName = "private-key-cache")
+    @CacheResult(cacheName = "sender-private-key-cache")
     public byte[] getPrivateKey(String senderEmail) {
         if (senderEmail == null || senderEmail.isEmpty()) {
             return null;
@@ -49,6 +56,13 @@ public class PrivateKeyProvider {
         return null;
     }
 
+    /**
+     * Returns the public key for the given sender email.
+     * 
+     * @param senderEmail The sender email
+     * @return The public key for the given sender email, if found
+     */
+    @CacheResult(cacheName = "sender-public-key-cache")
     public byte[] getPublicKey(String senderEmail) {
         if (senderEmail == null || senderEmail.isEmpty()) {
             return null;

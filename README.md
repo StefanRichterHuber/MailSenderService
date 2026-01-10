@@ -44,7 +44,7 @@ SMTP_SENDER_SECRET_KEY_FILE=[SENDER SECRET KEY FILE]
 # Password for the sender's private key. Required for generating signed and encrypted emails.
 SMTP_SENDER_SECRET_KEY_PASSWORD=[SENDER SECRET KEY PASSWORD]
 
-# Configuration values for the SMTP server. Real values only required for sending an email. For generation eml files, just add dummy values.
+# Configuration values for the SMTP server. Real values only required for sending an email. To just generate eml files, add dummy values.
 SMTP_AUTH_ENABLED=[true / false]
 SMTP_SSL_ENABLED=[true / false]
 SMTP_USER=[SENDER EMAIL]
@@ -53,6 +53,6 @@ SMTP_PORT=[SMTP PORT]
 SMTP_FROM=[SENDER EMAIL]
 SMTP_PASSWORD=[SENDER PASSWORD]
 
-# Recipient of the test email. Required for sending an email.
+# Recipient of the test email. Required for actually sending an email.
 MAIL_TO=[RECIPIENT EMAIL]
 ```

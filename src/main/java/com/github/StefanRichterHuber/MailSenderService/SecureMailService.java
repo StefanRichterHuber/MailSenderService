@@ -388,8 +388,7 @@ public class SecureMailService {
         }
 
         // Create a temporary message to ensure all headers and so on are properly set
-        MimeMessage tmp = new MimeMessage(
-                session);
+        final MimeMessage tmp = new MimeMessage(session);
         tmp.setFrom(from);
         tmp.addRecipient(MimeMessage.RecipientType.TO, to);
         tmp.setSubject(subject);
@@ -409,10 +408,10 @@ public class SecureMailService {
 
         // --- 2. Sign the Content (PGP/MIME multipart/signed) ---
         // PGP/MIME requires canonicalization (CRLF line endings)
-        byte[] contentBytes = getCanonicalBytes(contentBodyPart);
+        final byte[] contentBytes = getCanonicalBytes(contentBodyPart);
 
         // Generate detached signature
-        byte[] signature = sop.sign()
+        final byte[] signature = sop.sign()
                 .key(extractPrivateKey(senderKey))
                 .withKeyPassword(smtpConfig.senderSecretKeyPassword())
                 .mode(SignAs.text) // PGP/MIME uses detached signatures
@@ -420,13 +419,13 @@ public class SecureMailService {
                 .toByteArrayAndResult().getBytes();
 
         // Create the multipart/signed structure
-        MimeMultipart signedMultipart = new MimeMultipart(
+        final MimeMultipart signedMultipart = new MimeMultipart(
                 "signed; protocol=\"application/pgp-signature\"; micalg=pgp-sha256");
 
         signedMultipart.addBodyPart(contentBodyPart); // Part 1: Signed Data
 
         // Part 2: The signature
-        MimeBodyPart signaturePart = new MimeBodyPart();
+        final MimeBodyPart signaturePart = new MimeBodyPart();
         signaturePart.setHeader("Content-Type", "application/pgp-signature; name=\"signature.asc\"");
         signaturePart.setHeader("Content-Disposition", "attachment; filename=\"signature.asc\"");
         signaturePart.setDataHandler(
@@ -434,12 +433,12 @@ public class SecureMailService {
         signedMultipart.addBodyPart(signaturePart);
 
         // Wrap the signed multipart into a BodyPart for the next step
-        MimeBodyPart signedBodyPart = new MimeBodyPart();
+        final MimeBodyPart signedBodyPart = new MimeBodyPart();
         signedBodyPart.setContent(signedMultipart);
         signedBodyPart.setHeader("Content-Type", signedMultipart.getContentType());
 
         // --- 3. Encrypt the Content (PGP/MIME multipart/encrypted) ---
-        MimeBodyPart finalBodyPart;
+        final MimeBodyPart finalBodyPart;
 
         if (recipientCert != null) {
             // Encrypt the ENTIRE signed body part
@@ -452,16 +451,17 @@ public class SecureMailService {
                     .toByteArrayAndResult().getBytes();
 
             // Create multipart/encrypted structure
-            MimeMultipart encryptedMultipart = new MimeMultipart("encrypted; protocol=\"application/pgp-encrypted\"");
+            final MimeMultipart encryptedMultipart = new MimeMultipart(
+                    "encrypted; protocol=\"application/pgp-encrypted\"");
 
             // Part 1: Version info
-            MimeBodyPart versionPart = new MimeBodyPart();
+            final MimeBodyPart versionPart = new MimeBodyPart();
             versionPart.setContent("Version: 1", "application/pgp-encrypted"); // Standard PGP/MIME header
             versionPart.setDescription("PGP/MIME version identification");
             encryptedMultipart.addBodyPart(versionPart);
 
             // Part 2: Encrypted data
-            MimeBodyPart encryptedDataPart = new MimeBodyPart();
+            final MimeBodyPart encryptedDataPart = new MimeBodyPart();
             encryptedDataPart.setHeader("Content-Type", "application/octet-stream; name=\"encrypted.asc\"");
             encryptedDataPart.setHeader("Content-Disposition", "inline; filename=\"encrypted.asc\"");
             encryptedDataPart.setDescription("OpenPGP encrypted message");
