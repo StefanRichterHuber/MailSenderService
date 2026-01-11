@@ -390,6 +390,9 @@ public class SecureMailService {
         }
 
         // Create a temporary message to ensure all headers and so on are properly set
+
+        // Set the content (some headers are only properly set in a MimeBodyPart if the
+        // part is added to a MimeMessage and MimeMessage.saveChanges() is called)
         final MimeMessage tmp = new MimeMessage(session);
         tmp.setFrom(from);
         tmp.addRecipient(MimeMessage.RecipientType.TO, to);
@@ -428,16 +431,22 @@ public class SecureMailService {
 
         // Part 2: The signature
         final MimeBodyPart signaturePart = new MimeBodyPart();
-        signaturePart.setHeader("Content-Type", "application/pgp-signature; name=\"signature.asc\"");
-        signaturePart.setHeader("Content-Disposition", "attachment; filename=\"signature.asc\"");
         signaturePart.setDataHandler(
                 new jakarta.activation.DataHandler(new ByteArrayDataSource(signature, "application/pgp-signature")));
+        signaturePart.setFileName("signature.asc");
         signedMultipart.addBodyPart(signaturePart);
 
         // Wrap the signed multipart into a BodyPart for the next step
         final MimeBodyPart signedBodyPart = new MimeBodyPart();
         signedBodyPart.setContent(signedMultipart);
         signedBodyPart.setHeader("Content-Type", signedMultipart.getContentType());
+
+        // Set the content (some headers are only properly set in a MimeBodyPart if the
+        // part is added to a MimeMessage and MimeMessage.saveChanges() is called)
+        tmp.setContent(signedBodyPart.getContent(), signedBodyPart.getContentType());
+
+        // Save changes
+        tmp.saveChanges();
 
         // --- 3. Encrypt the Content (PGP/MIME multipart/encrypted) ---
         final MimeBodyPart finalBodyPart;
