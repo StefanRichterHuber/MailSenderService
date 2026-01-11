@@ -2,6 +2,8 @@ package com.github.StefanRichterHuber.MailSenderService;
 
 import java.util.Properties;
 
+import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
+
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;

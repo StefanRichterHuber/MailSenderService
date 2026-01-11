@@ -27,8 +27,10 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.jboss.logging.Logger;
 
 import com.github.StefanRichterHuber.MailSenderService.PrivateKeyProvider.OpenPGPKeyPair;
+import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.models.MailContent;
 import com.github.StefanRichterHuber.MailSenderService.models.MailContent.SignatureVerificationResult;
+import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
 
 import jakarta.activation.DataSource;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -64,6 +66,9 @@ public class SecureMailService {
 
     @Inject
     PrivateKeyProvider privateKeyProvider;
+
+    @Inject
+    PublicKeyProvider publicKeyProvider;
 
     @Inject
     Session session;
@@ -188,24 +193,24 @@ public class SecureMailService {
             final Iterable<DataSource> attachments) throws Exception {
 
         final InternetAddress from = new InternetAddress(smtpConfig.from());
-        final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.getByMail(smtpConfig.from()) : null;
+        final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.findByMail(smtpConfig.from()) : null;
 
         final List<RecipientWithCert> toWithCerts = to == null ? Collections.emptyList()
                 : to.stream()
-                        .map(recipient -> new RecipientWithCert(recipient,
-                                encrypt ? PublicKeySearchService.findByMail(recipient.toString()) : null))
+                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient.toString())
+                                : new RecipientWithCert(recipient, null))
                         .toList();
 
         final List<RecipientWithCert> ccWithCerts = cc == null ? Collections.emptyList()
                 : cc.stream()
-                        .map(recipient -> new RecipientWithCert(recipient,
-                                encrypt ? PublicKeySearchService.findByMail(recipient.toString()) : null))
+                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient.toString())
+                                : new RecipientWithCert(recipient, null))
                         .toList();
 
         final List<RecipientWithCert> bccWithCerts = bcc == null ? Collections.emptyList()
                 : bcc.stream()
-                        .map(recipient -> new RecipientWithCert(recipient,
-                                encrypt ? PublicKeySearchService.findByMail(recipient.toString()) : null))
+                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient.toString())
+                                : new RecipientWithCert(recipient, null))
                         .toList();
 
         final List<RecipientWithCert> recipients = Stream.of(toWithCerts, ccWithCerts, bccWithCerts)
@@ -255,9 +260,6 @@ public class SecureMailService {
             return true;
         }
         return recipientsWithCerts.stream().allMatch(r -> r.cert() != null);
-    }
-
-    public record RecipientWithCert(InternetAddress address, byte[] cert) {
     }
 
     /**
@@ -719,7 +721,7 @@ public class SecureMailService {
     public MimeMessage addAutocryptHeader(final MimeMessage message)
             throws MessagingException, IOException {
 
-        final OpenPGPKeyPair senderKeyPair = privateKeyProvider.getByMail(smtpConfig.from());
+        final OpenPGPKeyPair senderKeyPair = privateKeyProvider.findByMail(smtpConfig.from());
         return addAutocryptHeader(message, smtpConfig.from(), senderKeyPair);
     }
 
@@ -791,7 +793,7 @@ public class SecureMailService {
 
         final List<String> recipients = List.of(to, cc, bcc).stream().flatMap(List::stream).toList();
         // We need to get at least one private key for one of the recivers
-        final OpenPGPKeyPair receiverKeyPair = recipients.stream().map(privateKeyProvider::getByMail)
+        final OpenPGPKeyPair receiverKeyPair = recipients.stream().map(privateKeyProvider::findByMail)
                 .filter(Objects::nonNull).findFirst()
                 .orElse(null);
 
@@ -800,7 +802,7 @@ public class SecureMailService {
         } else {
             logger.debugf("Found private key for recipient: %s", receiverKeyPair.email());
         }
-        final byte[] senderPublicKey = PublicKeySearchService.findByMail(from);
+        final RecipientWithCert senderPublicKey = publicKeyProvider.findByMail(from);
         return decodeMimeMessage(mimeMessage, receiverKeyPair, senderPublicKey);
     }
 
@@ -819,7 +821,7 @@ public class SecureMailService {
      * @throws IOException
      */
     public MailContent decodeMimeMessage(MimeMessage mimeMessage, OpenPGPKeyPair receiverKeyPair,
-            byte[] senderPublicKey)
+            RecipientWithCert senderPublicKey)
             throws MessagingException, IOException {
 
         if (mimeMessage == null) {
@@ -879,7 +881,7 @@ public class SecureMailService {
      * @throws MessagingException
      */
     private MailContent decodeEncryptedMimeMessage(MimeMessage mimeMessage, OpenPGPKeyPair receiverKeyPair,
-            byte[] senderPublicKey) throws IOException, MessagingException {
+            RecipientWithCert senderPublicKey) throws IOException, MessagingException {
         final MimeMultipart mimeMultipart = (MimeMultipart) mimeMessage.getContent();
         // First message part is version imformation and of content type
         // application/pgp-encrypted
@@ -949,7 +951,8 @@ public class SecureMailService {
      * @throws MessagingException if an error occurs while parsing the mime part
      * @throws IOException        if an I/O error occurs
      */
-    private MailContent parseMimePart(MimePart mimePart, OpenPGPKeyPair receiverKeyPair, byte[] senderPublicKey)
+    private MailContent parseMimePart(MimePart mimePart, OpenPGPKeyPair receiverKeyPair,
+            RecipientWithCert senderPublicKey)
             throws MessagingException, IOException {
         if (mimePart.isMimeType("multipart/signed")) {
             // This is a signed but not encrypted content block
@@ -1115,7 +1118,7 @@ public class SecureMailService {
      * @throws IOException    if an I/O error occurs
      */
     private ConditionalDecryptionResult decryptIfEncrypted(byte[] content, OpenPGPKeyPair receiverKeyPair,
-            byte[] senderPublicKey)
+            RecipientWithCert senderPublicKey)
             throws SOPGPException, IOException {
 
         if (content == null || content.length == 0) {
@@ -1140,9 +1143,9 @@ public class SecureMailService {
                     .withKey(receiverKeyPair.privateKey())
                     .withKeyPassword(new String(receiverKeyPair.password()));
 
-            if (senderPublicKey != null) {
+            if (senderPublicKey != null && senderPublicKey.cert() != null) {
 
-                decrypt = decrypt.verifyWithCert(senderPublicKey);
+                decrypt = decrypt.verifyWithCert(senderPublicKey.cert());
                 isSigned = true;
             } else {
                 logger.warn("No public key for sender provided to verify signature");
@@ -1167,7 +1170,7 @@ public class SecureMailService {
      * @return true if the signature is valid, false otherwise
      * @throws IOException if an I/O error occurs
      */
-    private boolean verifySignature(MimeBodyPart content, MimeBodyPart signature, byte[] publicKey)
+    private boolean verifySignature(MimeBodyPart content, MimeBodyPart signature, RecipientWithCert publicKey)
             throws MessagingException, IOException {
 
         if (content == null) {
@@ -1187,7 +1190,8 @@ public class SecureMailService {
 
         final byte[] contentBytes = getBytesFromMimePart(content);
         final byte[] signatureBytes = getBytesFromMimePart(signature);
-        return verifySignature(contentBytes, signatureBytes, publicKey);
+        final byte[] publicKeyBytes = publicKey.cert();
+        return verifySignature(contentBytes, signatureBytes, publicKeyBytes);
     }
 
     /**

@@ -8,6 +8,8 @@ import java.util.regex.Pattern;
 
 import org.jboss.logging.Logger;
 
+import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
+
 import io.quarkus.cache.CacheResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -42,7 +44,7 @@ public class PrivateKeyProvider {
      * @return The OpenPGP key pair for the given sender email, if found
      */
     @CacheResult(cacheName = "sender-private-key-cache")
-    public OpenPGPKeyPair getByMail(final String senderEmail) {
+    public OpenPGPKeyPair findByMail(final String senderEmail) {
         if (senderEmail == null || senderEmail.isEmpty()) {
             return null;
         }

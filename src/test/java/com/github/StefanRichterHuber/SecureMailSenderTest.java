@@ -37,8 +37,8 @@ public class SecureMailSenderTest {
     @ConfigProperty(name = "mail.to")
     String to;
 
+    @ConfigProperty(name = "smtp.from")
     @Inject
-    @ConfigProperty(name = "mail.to2")
     String to2;
 
     /**
@@ -49,7 +49,7 @@ public class SecureMailSenderTest {
     @Test
     public void testCreateInlineSignedMail() throws Exception {
 
-        var mail = sendMail(true, true);
+        var mail = createMail(true, true);
         writeMailToDisk(mail, true, true);
     }
 
@@ -60,7 +60,7 @@ public class SecureMailSenderTest {
      */
     @Test
     public void testCreateSignedAndEncryptedMail() throws Exception {
-        var mail = sendMail(true, false);
+        var mail = createMail(true, false);
 
         secureMailSender.addAutocryptHeader(mail);
         writeMailToDisk(mail, true, false);
@@ -74,7 +74,7 @@ public class SecureMailSenderTest {
      */
     @Test
     public void testCreateSignedMail() throws Exception {
-        var mail = sendMail(false, false);
+        var mail = createMail(false, false);
 
         secureMailSender.addAutocryptHeader(mail);
         writeMailToDisk(mail, false, false);
@@ -84,20 +84,20 @@ public class SecureMailSenderTest {
     @Test
     @Disabled("Really sends a mail")
     void testSendInlineSignedMail() throws Exception {
-        var mail = sendMail(true, true);
+        var mail = createMail(true, true);
         Transport.send(mail);
     }
 
     @Test
     @Disabled("Really sends a mail")
     public void testSendMail() throws Exception {
-        var mail = sendMail(true, false);
+        var mail = createMail(true, false);
         Transport.send(mail);
     }
 
     @Test
     public void testCreateInlineEncryptedMailWithMultipleRecipients() throws Exception {
-        var mail = sendMailToMultipleRecipients(true, true);
+        var mail = createMailForMultipleRecipients(true, true);
 
         String filename = "inline_signed_encrypted_mail_with_multiple_recipients.eml";
 
@@ -109,7 +109,7 @@ public class SecureMailSenderTest {
 
     @Test
     public void testCreateEncryptedMailWithMultipleRecipients() throws Exception {
-        var mail = sendMailToMultipleRecipients(true, false);
+        var mail = createMailForMultipleRecipients(true, false);
 
         String filename = "signed_encrypted_mail_with_multiple_recipients.eml";
 
@@ -127,7 +127,7 @@ public class SecureMailSenderTest {
      * @return
      * @throws Exception
      */
-    private MimeMessage sendMail(boolean withEncryption, boolean inline) throws Exception {
+    private MimeMessage createMail(boolean withEncryption, boolean inline) throws Exception {
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
@@ -148,7 +148,7 @@ public class SecureMailSenderTest {
      * @return
      * @throws Exception
      */
-    private MimeMessage sendMailToMultipleRecipients(boolean withEncryption, boolean inline) throws Exception {
+    private MimeMessage createMailForMultipleRecipients(boolean withEncryption, boolean inline) throws Exception {
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));

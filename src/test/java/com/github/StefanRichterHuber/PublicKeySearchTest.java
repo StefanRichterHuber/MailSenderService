@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.junit.jupiter.api.Test;
 
-import com.github.StefanRichterHuber.MailSenderService.keysearch.MailvelopPublicKeySearchService;
-import com.github.StefanRichterHuber.MailSenderService.keysearch.VerifyingKeyServerKeySearchService;
+import com.github.StefanRichterHuber.MailSenderService.keysearch.impl.MailvelopPublicKeySearchService;
+import com.github.StefanRichterHuber.MailSenderService.keysearch.impl.VerifyingKeyServerKeySearchService;
 
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;

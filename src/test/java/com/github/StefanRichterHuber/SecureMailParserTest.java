@@ -14,8 +14,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.Test;
 
-import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.SecureMailService;
+import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.models.MailContent;
 import com.google.common.io.Files;
 
@@ -46,7 +46,7 @@ public class SecureMailParserTest {
     String to;
 
     @Inject
-    @ConfigProperty(name = "mail.to2")
+    @ConfigProperty(name = "smtp.from")
     String to2;
 
     @Inject
@@ -58,7 +58,7 @@ public class SecureMailParserTest {
     @Test
     public void testCreateInlineSignedMail() throws Exception {
 
-        var mail = sendMail(true, true);
+        var mail = createMail(true, true);
 
         final MailContent mailContent = secureMailSender.decodeMimeMessage(mail);
 
@@ -67,7 +67,7 @@ public class SecureMailParserTest {
 
     @Test
     public void testCreateSignedAndEncryptedMail() throws Exception {
-        var mail = sendMail(true, false);
+        var mail = createMail(true, false);
         final MailContent mailContent = secureMailSender.decodeMimeMessage(mail);
 
         verifyMailContent(mailContent, true);
@@ -75,7 +75,15 @@ public class SecureMailParserTest {
 
     @Test
     public void testCreateSignedMail() throws Exception {
-        var mail = sendMail(false, false);
+        var mail = createMail(false, false);
+        final MailContent mailContent = secureMailSender.decodeMimeMessage(mail);
+
+        verifyMailContent(mailContent, true);
+    }
+
+    @Test
+    public void testCreateMailWithMultipleRecipients() throws Exception {
+        var mail = createMailForMultipleRecipients(true, true);
         final MailContent mailContent = secureMailSender.decodeMimeMessage(mail);
 
         verifyMailContent(mailContent, true);
@@ -84,7 +92,12 @@ public class SecureMailParserTest {
     private void verifyMailContent(MailContent mailContent, boolean signatureExpected)
             throws IOException, MessagingException {
         assertEquals(SUBJECT, mailContent.subject());
-        assertEquals(to2, mailContent.to().stream().findFirst().get());
+        if (mailContent.to().size() == 1) {
+            assertEquals(to2, mailContent.to().stream().findFirst().get());
+        } else {
+            assertTrue(mailContent.to().contains(to));
+            assertTrue(mailContent.to().contains(to2));
+        }
         assertEquals(smtpConfig.from(), mailContent.from());
         assertEquals(signatureExpected,
                 mailContent.signatureVerified() == MailContent.SignatureVerificationResult.SignatureVerified);
@@ -127,7 +140,7 @@ public class SecureMailParserTest {
      * @return
      * @throws Exception
      */
-    private MimeMessage sendMail(boolean withEncryption, boolean inline) throws Exception {
+    private MimeMessage createMail(boolean withEncryption, boolean inline) throws Exception {
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
@@ -136,6 +149,28 @@ public class SecureMailParserTest {
                 SUBJECT, BODY, true,
                 withEncryption, false, inline,
                 false,
+                attachments);
+
+        return mimeMessage;
+    }
+
+    /**
+     * Helper method to create a mail.
+     * 
+     * @param withEncryption
+     * @param inline
+     * @return
+     * @throws Exception
+     */
+    private MimeMessage createMailForMultipleRecipients(boolean withEncryption, boolean inline) throws Exception {
+        List<DataSource> attachments = new ArrayList<>();
+        attachments.add(new FileDataSource(FILE1));
+        attachments.add(new FileDataSource(FILE2));
+
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(
+                List.of(new InternetAddress(to), new InternetAddress(to2)), null, null,
+                SUBJECT, BODY, true,
+                withEncryption, false, inline, false,
                 attachments);
 
         return mimeMessage;

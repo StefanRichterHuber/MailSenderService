@@ -1,4 +1,4 @@
-package com.github.StefanRichterHuber.MailSenderService.keysearch;
+package com.github.StefanRichterHuber.MailSenderService.keysearch.impl;
 
 import java.io.IOException;
 import java.net.URI;
@@ -6,8 +6,8 @@ import java.net.URI;
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.reactive.RestResponse;
 
-import com.github.StefanRichterHuber.MailSenderService.PublicKeySearchService;
-import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
+import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
+import com.github.StefanRichterHuber.MailSenderService.keysearch.PublicKeySearchService;
 import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeySearchResponse;
 import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeyServerService;
 
