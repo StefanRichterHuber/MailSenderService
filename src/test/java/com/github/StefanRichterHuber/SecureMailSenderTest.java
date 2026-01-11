@@ -10,7 +10,6 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import com.github.StefanRichterHuber.MailSenderService.CRLFOutputStream;
 import com.github.StefanRichterHuber.MailSenderService.SecureMailService;
 
 import io.quarkus.test.junit.QuarkusTest;
@@ -23,6 +22,13 @@ import jakarta.mail.internet.MimeMessage;
 
 @QuarkusTest
 public class SecureMailSenderTest {
+
+    private static final File FILE1 = new File("README.md");
+    private static final File FILE2 = new File("pom.xml");
+
+    private static final String BODY = "Here is the requested document.";
+
+    private static final String SUBJECT = "Secure Document";
 
     @Inject
     SecureMailService secureMailSender;
@@ -50,16 +56,30 @@ public class SecureMailSenderTest {
      */
     @Test
     public void testCreateSignedAndEncryptedMail() throws Exception {
-        var mail1 = sendMail(true, false);
-        var mail2 = sendMail(false, false);
+        var mail = sendMail(true, false);
 
-        secureMailSender.addAutocryptHeader(mail1);
-        secureMailSender.addAutocryptHeader(mail2);
+        secureMailSender.addAutocryptHeader(mail);
 
         // Write to file (or send via Transport)
 
-        writeMailToDisk(mail1, true, false);
-        writeMailToDisk(mail2, false, false);
+        writeMailToDisk(mail, true, false);
+
+    }
+
+    /**
+     * Creates a signed mail and writes it to disk.
+     * 
+     * @throws Exception
+     */
+    @Test
+    public void testCreateSignedMail() throws Exception {
+        var mail = sendMail(true, false);
+
+        secureMailSender.addAutocryptHeader(mail);
+
+        // Write to file (or send via Transport)
+
+        writeMailToDisk(mail, true, false);
 
     }
 
@@ -87,11 +107,11 @@ public class SecureMailSenderTest {
      */
     private MimeMessage sendMail(boolean withEncryption, boolean inline) throws Exception {
         List<DataSource> attachments = new ArrayList<>();
-        attachments.add(new FileDataSource(new File("README.md")));
-        // attachments.add(new FileDataSource(new File("pom.xml")));
+        attachments.add(new FileDataSource(FILE1));
+        attachments.add(new FileDataSource(FILE2));
 
         MimeMessage mimeMessage = secureMailSender.createPGPMail(new InternetAddress(to),
-                "Secure Document", "Here is the requested document.", true,
+                SUBJECT, BODY, true,
                 withEncryption, false, inline,
                 attachments);
 
@@ -112,7 +132,7 @@ public class SecureMailSenderTest {
             filename = "inline_" + filename;
         }
 
-        try (OutputStream out = new CRLFOutputStream(new FileOutputStream(filename))) {
+        try (OutputStream out = new FileOutputStream(filename)) {
             message.writeTo(out);
         }
         System.out.println("Email generated: " + filename);

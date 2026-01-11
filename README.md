@@ -28,6 +28,9 @@ See class `com.github.StefanRichterHuber.MailSenderService.SecureMailService` to
 
 The `Autocrypt` header is optional and can be added to the MIME message to enable clients to automatically import the public key of the sender. It contains the sender`s mail address and the public key of the sender. It can be added to all kind of messages, signed and encrypted or not.
 
+### Reading and Verifying PGP Messages
+
+See class `com.github.StefanRichterHuber.MailSenderService.SecureMailService.decodeMimeMessage(MimeMessage)` to read and verify PGP messages. It supports reading and verifying signed and encrypted multipart messages including attachments and protected headers as well as inline PGP with detached signatures.
 
 ## Testing
 

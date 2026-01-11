@@ -4,20 +4,29 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.Security;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.jboss.logging.Logger;
 
 import com.github.StefanRichterHuber.MailSenderService.PrivateKeyProvider.OpenPGPKeyPair;
+import com.github.StefanRichterHuber.MailSenderService.models.MailContent;
+import com.github.StefanRichterHuber.MailSenderService.models.MailContent.SignatureVerificationResult;
 
 import jakarta.activation.DataSource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.mail.Message.RecipientType;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Session;
 import jakarta.mail.Transport;
@@ -25,10 +34,16 @@ import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
+import jakarta.mail.internet.MimePart;
 import jakarta.mail.util.ByteArrayDataSource;
+import sop.DecryptionResult;
+import sop.ReadyWithResult;
 import sop.SOP;
+import sop.Verification;
 import sop.enums.EncryptAs;
 import sop.enums.SignAs;
+import sop.exception.SOPGPException;
+import sop.operation.Decrypt;
 import sop.operation.Encrypt;
 
 @ApplicationScoped
@@ -344,7 +359,7 @@ public class SecureMailService {
         }
         final boolean protectHeaders = smtpConfig.protectHeaders() && recipientCert != null;
         if (protectHeaders) {
-            logger.info("Protecting headers for messages to " + to);
+            logger.debugf("Protecting headers for messages to %s", to);
         }
         final byte[] senderKey = senderKeyPair.privateKey();
         final String senderKeyPassword = new String(senderKeyPair.password());
@@ -563,13 +578,461 @@ public class SecureMailService {
     }
 
     /**
+     * Parses a mime message. If parts / the whole message is encrypted, it will be
+     * decrypted and signed parts will be verified. Supports plain text and HTML
+     * content, simple pgp and pgp/mime encrypted content.
+     * 
+     * @param mimeMessage The mime message to parse
+     * @return The parsed mail content
+     * @throws MessagingException
+     * @throws IOException
+     */
+    public MailContent decodeMimeMessage(MimeMessage mimeMessage)
+            throws MessagingException, IOException {
+
+        if (mimeMessage == null) {
+            throw new IllegalArgumentException("MimeMessage must not be null");
+        }
+
+        final String from = mimeMessage.getFrom()[0].toString();
+        final String to = mimeMessage.getRecipients(RecipientType.TO)[0].toString();
+        final OpenPGPKeyPair receiverKeyPair = privateKeyProvider.getByMail(to);
+        final byte[] senderPublicKey = PublicKeySearchService.findByMail(from);
+        return decodeMimeMessage(mimeMessage, receiverKeyPair, senderPublicKey);
+    }
+
+    /**
+     * Parses a mime message. If parts / the whole message is encrypted, it will be
+     * decrypted and signed parts will be verified. Supports plain text and HTML
+     * content, simple pgp and pgp/mime encrypted content.
+     * 
+     * @param mimeMessage     The mime message to parse
+     * @param receiverKeyPair The key pair of the receiver (private key), if null,
+     *                        the message will not be decrypted
+     * @param senderPublicKey The public key of the sender (public key), if null,
+     *                        the message will not be verified
+     * @return The parsed mail content
+     * @throws MessagingException
+     * @throws IOException
+     */
+    public MailContent decodeMimeMessage(MimeMessage mimeMessage, OpenPGPKeyPair receiverKeyPair,
+            byte[] senderPublicKey)
+            throws MessagingException, IOException {
+
+        if (mimeMessage == null) {
+            throw new IllegalArgumentException("MimeMessage must not be null");
+        }
+
+        // First check if this is PGP/MIME (multipart/encrypted) encrypted mail
+        if (mimeMessage.isMimeType("multipart/encrypted")) {
+            return decodeEncryptedMimeMessage(mimeMessage, receiverKeyPair, senderPublicKey);
+        }
+
+        final MailContent mailContent = parseMimePart(mimeMessage, receiverKeyPair, senderPublicKey);
+        // Check if the mail content contained a (encrypted) subject and from field, if
+        // not take the one from the mime message
+        final String from = mailContent.from() != null ? mailContent.from() : mimeMessage.getFrom()[0].toString();
+        final String subject = mailContent.subject() != null ? mailContent.subject() : mimeMessage.getSubject();
+        final String to = mailContent.to() != null ? mailContent.to()
+                : mimeMessage.getRecipients(RecipientType.TO)[0].toString();
+        return new MailContent(from, to, subject, mailContent.bodies(), mailContent.attachments(),
+                mailContent.signatureVerified());
+
+    }
+
+    /**
+     * Parses a mime message that is encrypted with PGP/MIME (multipart/encrypted)
+     * 
+     * @param mimeMessage     The mime message to parse
+     * @param receiverKeyPair The key pair of the receiver (private key), if null,
+     *                        the message will not be decrypted
+     * @param senderPublicKey The public key of the sender (public key), if null,
+     *                        the message will not be verified
+     * @return The parsed mail content
+     * @throws IOException
+     * @throws MessagingException
+     */
+    private MailContent decodeEncryptedMimeMessage(MimeMessage mimeMessage, OpenPGPKeyPair receiverKeyPair,
+            byte[] senderPublicKey) throws IOException, MessagingException {
+        final MimeMultipart mimeMultipart = (MimeMultipart) mimeMessage.getContent();
+        // First message part is version imformation and of content type
+        // application/pgp-encrypted
+        final MimeBodyPart versionPart = (MimeBodyPart) mimeMultipart.getBodyPart(0);
+        if (!versionPart.isMimeType("application/pgp-encrypted")) {
+            throw new IllegalArgumentException(
+                    "Mail is not pgp/mime encrypted - wrong content type ('application/pgp-encrypted' expected): "
+                            + versionPart.getContentType());
+        }
+        if (!versionPart.getContent().equals("Version: 1")) {
+            throw new IllegalArgumentException(
+                    "Mail is not pgp/mime encrypted - wrong version ('Version: 1' expected): "
+                            + versionPart.getContent());
+        }
+        // Second message part is encrypted content. Content type is
+        // application/octet-stream
+        final MimeBodyPart encryptedPart = (MimeBodyPart) mimeMultipart.getBodyPart(1);
+        if (!encryptedPart.isMimeType("application/octet-stream")) {
+            throw new IllegalArgumentException(
+                    "Mail is not pgp/mime encrypted - wrong content type ('application/octet-stream' expected): "
+                            + encryptedPart.getContentType());
+        }
+
+        final byte[] encryptedContent = getBytesFromMimePart(encryptedPart);
+        final ConditionalDecryptionResult decryptedResult = this.decryptIfEncrypted(encryptedContent, receiverKeyPair,
+                senderPublicKey);
+        final byte[] decryptedContent = decryptedResult.content();
+        final MimeMessage decryptedMimeMessage = new MimeMessage(mimeMessage.getSession(),
+                new ByteArrayInputStream(decryptedContent));
+
+        /*
+         * Copy all headers from the original mime message to the decrypted mime message
+         */
+        if (mimeMessage.getFrom() != null && mimeMessage.getFrom().length > 0) {
+            for (int i = 0; i < mimeMessage.getFrom().length; i++) {
+                decryptedMimeMessage.setFrom(mimeMessage.getFrom()[i]);
+            }
+        }
+        if (mimeMessage.getSubject() != null) {
+            decryptedMimeMessage.setSubject(mimeMessage.getSubject());
+        }
+        if (mimeMessage.getRecipients(RecipientType.TO) != null
+                && mimeMessage.getRecipients(RecipientType.TO).length > 0) {
+            decryptedMimeMessage.setRecipients(RecipientType.TO, mimeMessage.getRecipients(RecipientType.TO));
+        }
+        if (mimeMessage.getRecipients(RecipientType.CC) != null
+                && mimeMessage.getRecipients(RecipientType.CC).length > 0) {
+            decryptedMimeMessage.setRecipients(RecipientType.CC, mimeMessage.getRecipients(RecipientType.CC));
+        }
+        if (mimeMessage.getRecipients(RecipientType.BCC) != null
+                && mimeMessage.getRecipients(RecipientType.BCC).length > 0) {
+            decryptedMimeMessage.setRecipients(RecipientType.BCC, mimeMessage.getRecipients(RecipientType.BCC));
+        }
+
+        final MailContent c = new MailContent(null, null, null, null, null, decryptedResult.signatureVerified());
+        return mergeMailContents(List.of(c, decodeMimeMessage(decryptedMimeMessage, receiverKeyPair, senderPublicKey)));
+    }
+
+    /**
+     * Recursively parses the given mime part and returns the mail content.
+     * 
+     * @param mimePart        The mime part to parse
+     * @param receiverKeyPair The receiver's key pair
+     * @param senderPublicKey The sender's public key
+     * @return The mail content
+     * @throws MessagingException if an error occurs while parsing the mime part
+     * @throws IOException        if an I/O error occurs
+     */
+    private MailContent parseMimePart(MimePart mimePart, OpenPGPKeyPair receiverKeyPair, byte[] senderPublicKey)
+            throws MessagingException, IOException {
+        if (mimePart.isMimeType("multipart/signed")) {
+            // This is a signed but not encrypted content block
+
+            final MimeMultipart mimeMultipart = (MimeMultipart) mimePart.getContent();
+            MimeBodyPart signaturePart = null;
+            MimeBodyPart signedPart = null;
+
+            if (mimeMultipart.getCount() != 2) {
+                throw new IllegalArgumentException("Multipart signed content block must have exactly 2 parts");
+            }
+
+            for (int i = 0; i < mimeMultipart.getCount(); i++) {
+                final MimeBodyPart mimeBodyPart = (MimeBodyPart) mimeMultipart.getBodyPart(i);
+                if (mimeBodyPart.isMimeType("application/pgp-signature")
+                        || Objects.equals(mimeBodyPart.getFileName(), "signature.asc")) {
+                    signaturePart = mimeBodyPart;
+                } else {
+                    signedPart = mimeBodyPart;
+                }
+            }
+            if (signaturePart == null) {
+                throw new IllegalArgumentException("Signature part is missing");
+            }
+            if (signedPart == null) {
+                throw new IllegalArgumentException("Signed part is missing");
+            }
+
+            final boolean signatureVerified = verifySignature(signedPart, signaturePart, senderPublicKey);
+            final MailContent mc = new MailContent(null, null, null, null, null,
+                    signatureVerified ? MailContent.SignatureVerificationResult.SignatureVerified
+                            : MailContent.SignatureVerificationResult.SignatureInvalid);
+
+            return this.mergeMailContents(List.of(mc, parseMimePart(signedPart, receiverKeyPair, senderPublicKey)));
+        } else if (mimePart.isMimeType("multipart/*")) {
+            final List<MailContent> mailContents = new ArrayList<>();
+            if (mimePart.getContentType().contains("protected-headers=\"v1\"")) {
+                logger.debugf("Mime part contains protected headers v1");
+                // Check if this part has from / to / subject fields -> this happens when the
+                // mail is pgp/mime encrypted
+                final String from = Optional.ofNullable(mimePart.getHeader("From")).filter(s -> s.length > 0)
+                        .map(s -> s[0]).orElse(null);
+                final String subject = Optional.ofNullable(mimePart.getHeader("Subject")).filter(s -> s.length > 0)
+                        .map(s -> s[0]).orElse(null);
+                final String to = Optional.ofNullable(mimePart.getHeader("To")).filter(s -> s.length > 0)
+                        .map(s -> s[0]).orElse(null);
+                mailContents.add(new MailContent(from, to, subject, new ArrayList<>(), new ArrayList<>(),
+                        MailContent.SignatureVerificationResult.NoSignature));
+            }
+
+            // Recursivle parse all parts
+            if (mimePart.getContent() instanceof MimeMultipart) {
+                final MimeMultipart mimeMultipart = (MimeMultipart) mimePart.getContent();
+
+                for (int i = 0; i < mimeMultipart.getCount(); i++) {
+                    final MailContent mailContent = parseMimePart((MimeBodyPart) mimeMultipart.getBodyPart(i),
+                            receiverKeyPair, senderPublicKey);
+                    mailContents.add(mailContent);
+                }
+                return mergeMailContents(mailContents);
+            }
+        } else if (mimePart.isMimeType("text/plain") || mimePart.isMimeType("text/html")) {
+            final byte[] content = getBytesFromMimePart(mimePart);
+            final ConditionalDecryptionResult decryptedResult = decryptIfEncrypted(content, receiverKeyPair,
+                    senderPublicKey);
+            final String decryptedContent = new String(decryptedResult.content(), StandardCharsets.UTF_8);
+
+            final MimeBodyPart mimeBodyPart = new MimeBodyPart();
+            mimeBodyPart.setContent(decryptedContent, mimePart.getContentType());
+            if (mimePart.getFileName() != null)
+                mimeBodyPart.setFileName(mimePart.getFileName());
+            if (mimePart.getDisposition() != null)
+                mimeBodyPart.setDisposition(mimePart.getDisposition());
+            if (mimePart.getDescription() != null)
+                mimeBodyPart.setDescription(mimePart.getDescription());
+            if (mimePart.getContentID() != null)
+                mimeBodyPart.setContentID(mimePart.getContentID());
+            if (mimePart.getContentLanguage() != null)
+                mimeBodyPart.setContentLanguage(mimePart.getContentLanguage());
+            return new MailContent(null, null, null, List.of(mimeBodyPart), null,
+                    decryptedResult.signatureVerified());
+        } else if (mimePart.isMimeType("application/*")) {
+            final byte[] content = getBytesFromMimePart(mimePart);
+            final ConditionalDecryptionResult decryptedResult = decryptIfEncrypted(content, receiverKeyPair,
+                    senderPublicKey);
+            final byte[] decryptedContent = decryptedResult.content();
+
+            String fileName = mimePart.getFileName();
+            if (fileName == null) {
+                fileName = mimePart.getContentID();
+            }
+            // Clean up file name ( remove extensions like .pgp, .asc, .gpg )
+            if (fileName != null
+                    && (fileName.endsWith(".asc") || fileName.endsWith(".pgp") || fileName.endsWith(".gpg"))) {
+                fileName = fileName.substring(0, fileName.lastIndexOf('.'));
+            }
+
+            final ByteArrayDataSource dataSource = new ByteArrayDataSource(decryptedContent, mimePart.getContentType());
+            dataSource.setName(fileName);
+            return new MailContent(null, null, null, null, List.of(dataSource), decryptedResult.signatureVerified());
+
+        }
+        logger.warnf("Unsupported mime type: %s", mimePart.getContentType());
+        return null;
+    }
+
+    /**
+     * Returns the content of the given mime part as byte array.
+     * 
+     * @param mimePart The mime part to get the content from
+     * @return The content of the mime part as byte array
+     * @throws IOException
+     * @throws MessagingException
+     */
+    private byte[] getBytesFromMimePart(MimePart mimePart) throws IOException, MessagingException {
+        if (mimePart == null || mimePart.getContent() == null) {
+            return null;
+        }
+        if (mimePart.getContent() instanceof byte[]) {
+            return (byte[]) mimePart.getContent();
+        }
+        if (mimePart.getContent() instanceof InputStream) {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ((InputStream) mimePart.getContent()).transferTo(bos);
+            return bos.toByteArray();
+        }
+        if (mimePart.getContent() instanceof String) {
+            return ((String) mimePart.getContent()).getBytes(StandardCharsets.UTF_8);
+        }
+        if (mimePart.getContent() instanceof MimeMultipart) {
+            final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            mimePart.writeTo(bos);
+            return bos.toByteArray();
+        }
+        logger.errorf("Content of mime part is of type %s and cannot be read",
+                mimePart.getContent().getClass().getName());
+        return null;
+    }
+
+    /**
+     * Container for the decrypted content and the result of the decryption.
+     */
+    private record ConditionalDecryptionResult(byte[] content, boolean isEncrypted,
+            SignatureVerificationResult signatureVerified) {
+    }
+
+    /**
+     * Decrypts the given content if it is encrypted.
+     * 
+     * @param content         The content to decrypt
+     * @param receiverKeyPair The receiver's key pair
+     * @param senderPublicKey The sender's public key
+     * @return The decrypted content
+     * @throws SOPGPException if an error occurs during decryption
+     * @throws IOException    if an I/O error occurs
+     */
+    private ConditionalDecryptionResult decryptIfEncrypted(byte[] content, OpenPGPKeyPair receiverKeyPair,
+            byte[] senderPublicKey)
+            throws SOPGPException, IOException {
+
+        if (content == null || content.length == 0) {
+            return new ConditionalDecryptionResult(null, false, SignatureVerificationResult.NoSignature);
+        }
+
+        if (receiverKeyPair == null) {
+            logger.debug("No private key for receiver provider");
+            return new ConditionalDecryptionResult(content, false, SignatureVerificationResult.NoSignature);
+        }
+
+        final Pattern pattern = Pattern.compile(
+                "(-----BEGIN PGP MESSAGE-----.*?-----END PGP MESSAGE-----)",
+                Pattern.DOTALL);
+        final Matcher matcher = pattern.matcher(new String(content));
+        if (matcher.find()) {
+            boolean isSigned = false;
+            final String encodedContent = matcher.group(1);
+
+            final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            Decrypt decrypt = sop.decrypt()
+                    .withKey(receiverKeyPair.privateKey())
+                    .withKeyPassword(new String(receiverKeyPair.password()));
+
+            if (senderPublicKey != null) {
+
+                decrypt = decrypt.verifyWithCert(senderPublicKey);
+                isSigned = true;
+            } else {
+                logger.warn("No public key for sender provided to verify signature");
+            }
+
+            final ReadyWithResult<DecryptionResult> result = decrypt
+                    .ciphertext(encodedContent.getBytes(StandardCharsets.UTF_8));
+            result.writeTo(outputStream);
+
+            return new ConditionalDecryptionResult(outputStream.toByteArray(), true,
+                    isSigned ? SignatureVerificationResult.SignatureVerified : SignatureVerificationResult.NoSignature);
+        }
+        return new ConditionalDecryptionResult(content, false, SignatureVerificationResult.NoSignature);
+    }
+
+    /**
+     * Verifies the signature of the given content and signature.
+     * 
+     * @param content   the content to verify
+     * @param signature the signature to verify
+     * @param publicKey the public key to verify the signature with
+     * @return true if the signature is valid, false otherwise
+     * @throws IOException if an I/O error occurs
+     */
+    private boolean verifySignature(MimeBodyPart content, MimeBodyPart signature, byte[] publicKey)
+            throws MessagingException, IOException {
+
+        if (content == null) {
+            logger.warn("Content is null");
+            return false;
+        }
+
+        if (signature == null) {
+            logger.warn("Signature is null");
+            return false;
+        }
+
+        if (publicKey == null) {
+            logger.warn("Public key is null");
+            return false;
+        }
+
+        final byte[] contentBytes = getBytesFromMimePart(content);
+        final byte[] signatureBytes = getBytesFromMimePart(signature);
+        return verifySignature(contentBytes, signatureBytes, publicKey);
+    }
+
+    /**
+     * Verifies the signature of the given content and signature.
+     * 
+     * @param content   the content to verify
+     * @param signature the signature to verify
+     * @param publicKey the public key to verify the signature with
+     * @return true if the signature is valid, false otherwise
+     * @throws IOException if an I/O error occurs
+     */
+    private boolean verifySignature(byte[] content, byte[] signature, byte[] publicKey) throws IOException {
+        if (content == null || content.length == 0) {
+            logger.warn("Content is null or empty");
+            return false;
+        }
+
+        if (signature == null || signature.length == 0) {
+            logger.warn("Signature is null or empty");
+            return false;
+        }
+
+        if (publicKey == null || publicKey.length == 0) {
+            logger.warn("Public key is null or empty");
+            return false;
+        }
+
+        try {
+            final List<Verification> result = sop.verify().cert(publicKey).signatures(signature).data(content);
+            logger.debugf("Signature verification successful. Result: %s", result);
+            return result.size() > 0;
+        } catch (SOPGPException e) {
+            logger.warnf("Signature verification failed: %s", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Merges the given mail contents into a single mail content.
+     * 
+     * @param mailContents the mail contents to merge
+     * @return the merged mail content
+     */
+    private MailContent mergeMailContents(Iterable<? extends MailContent> mailContents) {
+        String from = null;
+        String subject = null;
+        String to = null;
+        List<MimeBodyPart> bodies = new ArrayList<>();
+        List<DataSource> attachments = new ArrayList<>();
+        MailContent.SignatureVerificationResult signatureVerified = MailContent.SignatureVerificationResult.NoSignature;
+        for (MailContent mailContent : mailContents) {
+            if (mailContent == null) {
+                continue;
+            }
+            if (mailContent.from() != null) {
+                from = mailContent.from();
+            }
+            if (mailContent.to() != null) {
+                to = mailContent.to();
+            }
+            if (mailContent.subject() != null) {
+                subject = mailContent.subject();
+            }
+            if (mailContent.signatureVerified() == MailContent.SignatureVerificationResult.SignatureInvalid
+                    || mailContent.signatureVerified() == MailContent.SignatureVerificationResult.SignatureVerified) {
+                signatureVerified = mailContent.signatureVerified();
+            }
+            bodies.addAll(mailContent.bodies() != null ? mailContent.bodies() : List.of());
+            attachments.addAll(mailContent.attachments() != null ? mailContent.attachments() : List.of());
+        }
+        return new MailContent(from, to, subject, bodies, attachments, signatureVerified);
+    }
+
+    /**
      * Converts a BodyPart to canonical CRLF bytes for signing.
      */
     private static byte[] getCanonicalBytes(MimeBodyPart bodyPart) throws IOException, MessagingException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         // Use the wrapper to force CRLF during serialization
-        OutputStream out = new CRLFOutputStream(buffer);
-        bodyPart.writeTo(out);
+        bodyPart.writeTo(buffer);
         return buffer.toByteArray();
     }
 
