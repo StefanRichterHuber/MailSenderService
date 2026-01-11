@@ -7,14 +7,13 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.security.Security;
 import java.util.Base64;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.jboss.logging.Logger;
+
+import com.github.StefanRichterHuber.MailSenderService.PrivateKeyProvider.OpenPGPKeyPair;
 
 import jakarta.activation.DataSource;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -137,18 +136,17 @@ public class SecureMailService {
             final Iterable<DataSource> attachments) throws Exception {
 
         final InternetAddress from = new InternetAddress(smtpConfig.from());
-        final byte[] senderKey = sign ? privateKeyProvider.getPrivateKey(smtpConfig.from()) : null;
-        final byte[] senderPublicKey = sign ? privateKeyProvider.getPublicKey(smtpConfig.from()) : null;
+        final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.getByMail(smtpConfig.from()) : null;
         final byte[] recipientCert = encrypt ? PublicKeySearchService.findByMail(to.toString()) : null;
 
         MimeMessage mimeMessage = inlinePGP
-                ? createInlinePGPMail(from, to, subject, body, senderKey, recipientCert, attachments,
+                ? createInlinePGPMail(from, to, subject, body, senderKeyPair, recipientCert, attachments,
                         session)
-                : createPGPMail(from, to, subject, body, senderKey, recipientCert, attachments,
+                : createPGPMail(from, to, subject, body, senderKeyPair, recipientCert, attachments,
                         session);
 
         if (addAutocryptHeader) {
-            mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), senderPublicKey);
+            mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), senderKeyPair);
         }
 
         return mimeMessage;
@@ -166,7 +164,7 @@ public class SecureMailService {
      * @param subject       The subject of the email. Required. Will not be
      *                      encrypted.
      * @param body          The body of the email. Required.
-     * @param senderKey     The sender's private key. If null, the email
+     * @param senderKeyPair The sender's private key. If null, the email
      *                      will not
      *                      be signed.
      * @param recipientCert The recipient's public key. Required.
@@ -180,7 +178,7 @@ public class SecureMailService {
             final InternetAddress to,
             final String subject,
             final String body,
-            final byte[] senderKey,
+            final OpenPGPKeyPair senderKeyPair,
             final byte[] recipientCert,
             final Iterable<DataSource> attachments,
             final Session session) throws Exception {
@@ -201,6 +199,8 @@ public class SecureMailService {
         if (recipientCert == null) {
             throw new IllegalArgumentException("Recipient certificate is required for Inline PGP encryption");
         }
+        final byte[] senderKey = senderKeyPair.privateKey();
+        final String senderKeyPassword = new String(senderKeyPair.password());
         final MimeMultipart rootMultipart = new MimeMultipart("mixed");
 
         // 1. Sign and Encrypt the body text directly
@@ -215,8 +215,8 @@ public class SecureMailService {
 
         // If we have a sender key, sign the data *inside* the encryption envelope
         if (senderKey != null) {
-            encryptBuilder.signWith(extractPrivateKey(senderKey))
-                    .withKeyPassword(smtpConfig.senderSecretKeyPassword());
+            encryptBuilder.signWith(senderKey)
+                    .withKeyPassword(senderKeyPassword);
         }
 
         // Generate the ASCII Armored Block
@@ -258,8 +258,8 @@ public class SecureMailService {
                         .withCert(recipientCert);
 
                 if (senderKey != null) {
-                    fileEncryptBuilder.signWith(extractPrivateKey(senderKey))
-                            .withKeyPassword(smtpConfig.senderSecretKeyPassword());
+                    fileEncryptBuilder.signWith(senderKey)
+                            .withKeyPassword(senderKeyPassword);
                 }
 
                 final byte[] encryptedAttachBytes = fileEncryptBuilder.mode(EncryptAs.binary)
@@ -310,7 +310,7 @@ public class SecureMailService {
      * @param to            The recipient's email address. Required.
      * @param subject       The subject of the email. Required.
      * @param body          The body of the email. Required.
-     * @param senderKey     The sender's private key. If null, the email
+     * @param senderKeyPair The sender's private key. If null, the email
      *                      will not
      *                      be signed.
      * @param recipientCert The recipient's public key. If null, the email will not
@@ -324,7 +324,7 @@ public class SecureMailService {
             final InternetAddress to,
             final String subject,
             final String body,
-            final byte[] senderKey,
+            final OpenPGPKeyPair senderKeyPair,
             final byte[] recipientCert,
             final Iterable<DataSource> attachments,
             Session session) throws Exception {
@@ -346,6 +346,8 @@ public class SecureMailService {
         if (protectHeaders) {
             logger.info("Protecting headers for messages to " + to);
         }
+        final byte[] senderKey = senderKeyPair.privateKey();
+        final String senderKeyPassword = new String(senderKeyPair.password());
 
         // --- 1. Create the Inner Content (Body + Attachment) ---
         MimeMultipart contentMultipart = new MimeMultipart("mixed");
@@ -412,8 +414,8 @@ public class SecureMailService {
 
         // Generate detached signature
         final byte[] signature = sop.sign()
-                .key(extractPrivateKey(senderKey))
-                .withKeyPassword(smtpConfig.senderSecretKeyPassword())
+                .key(senderKey)
+                .withKeyPassword(senderKeyPassword)
                 .mode(SignAs.text) // PGP/MIME uses detached signatures
                 .data(contentBytes)
                 .toByteArrayAndResult().getBytes();
@@ -509,37 +511,29 @@ public class SecureMailService {
     public MimeMessage addAutocryptHeader(final MimeMessage message)
             throws MessagingException, IOException {
 
-        final String senderMail = smtpConfig.from();
-
-        // Read public key from *asc file
-        final byte[] senderKeyAscFormat = smtpConfig.senderSecretKeyFile().exists()
-                ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
-                : null;
-        final byte[] senderKeyAscFormatPublicOnly = extractPublicKey(senderKeyAscFormat);
-
-        // Clean up the key (remove headers) and decode it from asc to binary
-        // First check if its is raw key or asc format
-        final byte[] decodedSenderKey = decodePublicKey(senderKeyAscFormatPublicOnly);
-
-        return addAutocryptHeader(message, senderMail, decodedSenderKey);
+        final OpenPGPKeyPair senderKeyPair = privateKeyProvider.getByMail(smtpConfig.from());
+        return addAutocryptHeader(message, smtpConfig.from(), senderKeyPair);
     }
 
     /**
      * Adds an Autocrypt header to a Jakarta Mail message.
      *
-     * @param message        The MimeMessage to modify.
-     * @param senderEmail    The email address of the sender (must match the 'From'
-     *                       header).
-     * @param publicKeyBytes The raw binary bytes of the OpenPGP public key (NOT
-     *                       ASCII armored).
+     * @param message     The MimeMessage to modify.
+     * @param senderEmail The email address of the sender (must match the 'From'
+     *                    header).
+     * @param keyPair     The OpenPGP key pair (private and public key).
      * @throws MessagingException If the header cannot be set.
+     * @throws IOException
      */
-    private MimeMessage addAutocryptHeader(MimeMessage message, String senderEmail, byte[] publicKeyBytes)
-            throws MessagingException {
-        if (publicKeyBytes == null || publicKeyBytes.length == 0) {
+    private MimeMessage addAutocryptHeader(final MimeMessage message, final String senderEmail,
+            final OpenPGPKeyPair keyPair)
+            throws MessagingException, IOException {
+        if (keyPair == null || keyPair.publicKey() == null || keyPair.publicKey().length == 0) {
             logger.warnf("No public key provided for sender: %s. Unable to add Autocrypt header.", senderEmail);
             return message;
         }
+        final byte[] publicKeyBytes = decodePublicKey(keyPair.publicKey());
+
         // 1. Encode the raw key bytes to Base64
         // The Autocrypt spec requires the keydata to be the Base64 representation of
         // the binary key (without headers like '-----BEGIN PGP PUBLIC KEY BLOCK-----')
@@ -560,47 +554,14 @@ public class SecureMailService {
     }
 
     /**
-     * Extracts the ASCII Armored Private Key block from a mixed key file, since
-     * OpenPGPainless only supports private key only files.
+     * Converts a BodyPart to canonical CRLF bytes for signing.
      */
-    private static byte[] extractPrivateKey(byte[] keyFileBytes) {
-        final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
-
-        // Regex to find the private key block (DOTALL mode allows . to match newlines)
-        final Pattern pattern = Pattern.compile(
-                "(-----BEGIN PGP PRIVATE KEY BLOCK-----.*?-----END PGP PRIVATE KEY BLOCK-----)",
-                Pattern.DOTALL);
-
-        final Matcher matcher = pattern.matcher(content);
-        if (matcher.find()) {
-            return matcher.group(1).getBytes(StandardCharsets.UTF_8);
-        } else {
-            throw new IllegalArgumentException("No PGP PRIVATE KEY BLOCK found in the provided file.");
-        }
-    }
-
-    /**
-     * Extracts the ASCII Armored Public Key block from a mixed key file, since
-     * OpenPGPainless only supports public key only files.
-     */
-    private byte[] extractPublicKey(byte[] keyFileBytes) {
-        if (keyFileBytes == null || keyFileBytes.length == 0) {
-            return null;
-        }
-        final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
-
-        // Regex to find the private key block (DOTALL mode allows . to match newlines)
-        final Pattern pattern = Pattern.compile(
-                "(-----BEGIN PGP PUBLIC KEY BLOCK-----.*?-----END PGP PUBLIC KEY BLOCK-----)",
-                Pattern.DOTALL);
-
-        final Matcher matcher = pattern.matcher(content);
-        if (matcher.find()) {
-            return matcher.group(1).getBytes(StandardCharsets.UTF_8);
-        } else {
-            logger.warnf("No PGP PUBLIC KEY BLOCK found in the provided file: %s", new String(keyFileBytes));
-            return null;
-        }
+    private static byte[] getCanonicalBytes(MimeBodyPart bodyPart) throws IOException, MessagingException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        // Use the wrapper to force CRLF during serialization
+        OutputStream out = new CRLFOutputStream(buffer);
+        bodyPart.writeTo(out);
+        return buffer.toByteArray();
     }
 
     /**
@@ -629,7 +590,7 @@ public class SecureMailService {
      * @return The raw binary key data.
      * @throws IOException If there is an error reading the byte stream.
      */
-    public static byte[] dearmorKey(byte[] armoredKeyBytes) throws IOException {
+    private static byte[] dearmorKey(byte[] armoredKeyBytes) throws IOException {
         if (armoredKeyBytes == null || armoredKeyBytes.length == 0) {
             return null;
         }
@@ -683,17 +644,6 @@ public class SecureMailService {
 
         // 6. Decode the clean Base64 string to raw bytes
         return Base64.getDecoder().decode(base64Content.toString());
-    }
-
-    /**
-     * Converts a BodyPart to canonical CRLF bytes for signing.
-     */
-    private static byte[] getCanonicalBytes(MimeBodyPart bodyPart) throws IOException, MessagingException {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        // Use the wrapper to force CRLF during serialization
-        OutputStream out = new CRLFOutputStream(buffer);
-        bodyPart.writeTo(out);
-        return buffer.toByteArray();
     }
 
 }

@@ -29,13 +29,20 @@ public class PrivateKeyProvider {
     Logger logger;
 
     /**
-     * Returns the private key for the given sender email.
+     * Container for the private and public key and the password to decrypt the
+     * private key.
+     */
+    public record OpenPGPKeyPair(byte[] privateKey, byte[] publicKey, char[] password) {
+    }
+
+    /**
+     * Returns the OpenPGP key pair for the given sender email.
      * 
      * @param senderEmail The sender email
-     * @return The private key for the given sender email, if found
+     * @return The OpenPGP key pair for the given sender email, if found
      */
     @CacheResult(cacheName = "sender-private-key-cache")
-    public byte[] getPrivateKey(String senderEmail) {
+    public OpenPGPKeyPair getByMail(final String senderEmail) {
         if (senderEmail == null || senderEmail.isEmpty()) {
             return null;
         }
@@ -47,7 +54,10 @@ public class PrivateKeyProvider {
 
                 logger.infof("Sender private key for %s read from configured file %s", smtpConfig.from(),
                         smtpConfig.senderSecretKeyFile());
-                return senderKey;
+
+                final char[] password = smtpConfig.senderSecretKeyPassword().toCharArray();
+                return new OpenPGPKeyPair(extractPrivateKey(senderKey), extractPublicKey(senderKey), password);
+
             } catch (IOException e) {
                 logger.errorf(e, "Failed to read sender private key for %s", smtpConfig.from());
                 return null;
@@ -57,31 +67,23 @@ public class PrivateKeyProvider {
     }
 
     /**
-     * Returns the public key for the given sender email.
-     * 
-     * @param senderEmail The sender email
-     * @return The public key for the given sender email, if found
+     * Extracts the ASCII Armored Private Key block from a mixed key file, since
+     * OpenPGPainless only supports private key only files.
      */
-    @CacheResult(cacheName = "sender-public-key-cache")
-    public byte[] getPublicKey(String senderEmail) {
-        if (senderEmail == null || senderEmail.isEmpty()) {
-            return null;
-        }
-        if (senderEmail.equals(smtpConfig.from())) {
-            try {
-                final byte[] senderKey = smtpConfig.senderSecretKeyFile().exists()
-                        ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
-                        : null;
+    private static byte[] extractPrivateKey(byte[] keyFileBytes) {
+        final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
 
-                logger.infof("Sender public key for %s read from configured file %s", smtpConfig.from(),
-                        smtpConfig.senderSecretKeyFile());
-                return extractPublicKey(senderKey);
-            } catch (IOException e) {
-                logger.errorf(e, "Failed to read sender public key for %s", smtpConfig.from());
-                return null;
-            }
+        // Regex to find the private key block (DOTALL mode allows . to match newlines)
+        final Pattern pattern = Pattern.compile(
+                "(-----BEGIN PGP PRIVATE KEY BLOCK-----.*?-----END PGP PRIVATE KEY BLOCK-----)",
+                Pattern.DOTALL);
+
+        final Matcher matcher = pattern.matcher(content);
+        if (matcher.find()) {
+            return matcher.group(1).getBytes(StandardCharsets.UTF_8);
+        } else {
+            throw new IllegalArgumentException("No PGP PRIVATE KEY BLOCK found in the provided file.");
         }
-        return null;
     }
 
     /**
