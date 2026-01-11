@@ -63,9 +63,6 @@ public class SecureMailSenderTest {
         var mail = sendMail(true, false);
 
         secureMailSender.addAutocryptHeader(mail);
-
-        // Write to file (or send via Transport)
-
         writeMailToDisk(mail, true, false);
 
     }
@@ -80,9 +77,6 @@ public class SecureMailSenderTest {
         var mail = sendMail(false, false);
 
         secureMailSender.addAutocryptHeader(mail);
-
-        // Write to file (or send via Transport)
-
         writeMailToDisk(mail, false, false);
 
     }

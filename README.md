@@ -53,6 +53,7 @@ SMTP_PORT=[SMTP PORT]
 SMTP_FROM=[SENDER EMAIL]
 SMTP_PASSWORD=[SENDER PASSWORD]
 
-# Recipient of the test email. Required for actually sending an email.
+# Two test recipients of the test email. MAIL_TO should have a public key on the configured key servers. MAIL_TO2 should have a private key configured in the `SMTP_SENDER_SECRET_KEY_FILE` environment variable. Required for parsing and sending an email.
 MAIL_TO=[RECIPIENT EMAIL]
+MAIL_TO2=[RECIPIENT EMAIL]
 ```

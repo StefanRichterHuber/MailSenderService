@@ -141,26 +141,4 @@ public class SecureMailParserTest {
         return mimeMessage;
     }
 
-    /**
-     * Helper method to create a mail.
-     * 
-     * @param withEncryption
-     * @param inline
-     * @return
-     * @throws Exception
-     */
-    private MimeMessage sendMailToMultipleRecipients(boolean withEncryption, boolean inline) throws Exception {
-        List<DataSource> attachments = new ArrayList<>();
-        attachments.add(new FileDataSource(FILE1));
-        attachments.add(new FileDataSource(FILE2));
-
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)), null, null,
-                SUBJECT, BODY, true,
-                withEncryption, false, inline,
-                false,
-                attachments);
-
-        return mimeMessage;
-    }
-
 }
