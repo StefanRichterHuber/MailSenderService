@@ -77,13 +77,13 @@ public class SecureMailSenderTest {
      */
     @Test
     public void testCreateSignedMail() throws Exception {
-        var mail = sendMail(true, false);
+        var mail = sendMail(false, false);
 
         secureMailSender.addAutocryptHeader(mail);
 
         // Write to file (or send via Transport)
 
-        writeMailToDisk(mail, true, false);
+        writeMailToDisk(mail, false, false);
 
     }
 
@@ -138,9 +138,9 @@ public class SecureMailSenderTest {
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
 
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)),
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)), null, null,
                 SUBJECT, BODY, true,
-                withEncryption, false, inline,
+                withEncryption, false, inline, false,
                 attachments);
 
         return mimeMessage;
@@ -160,9 +160,9 @@ public class SecureMailSenderTest {
         attachments.add(new FileDataSource(FILE2));
 
         MimeMessage mimeMessage = secureMailSender.createPGPMail(
-                List.of(new InternetAddress(to), new InternetAddress(to2)),
+                List.of(new InternetAddress(to), new InternetAddress(to2)), null, null,
                 SUBJECT, BODY, true,
-                withEncryption, false, inline,
+                withEncryption, false, inline, false,
                 attachments);
 
         return mimeMessage;

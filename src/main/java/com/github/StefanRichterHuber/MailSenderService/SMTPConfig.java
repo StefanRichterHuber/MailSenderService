@@ -89,6 +89,12 @@ public interface SMTPConfig {
     @WithDefault("...")
     String encryptedSubjectPlaceholder();
 
+    /**
+     * Whether to fallback to plain mail if not all recipients have a certificate.
+     */
+    @WithDefault("false")
+    boolean fallbackToPlainMail();
+
     @WithDefault("false")
     boolean tls();
 

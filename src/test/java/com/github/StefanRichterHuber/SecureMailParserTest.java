@@ -84,7 +84,7 @@ public class SecureMailParserTest {
     private void verifyMailContent(MailContent mailContent, boolean signatureExpected)
             throws IOException, MessagingException {
         assertEquals(SUBJECT, mailContent.subject());
-        assertEquals(to, mailContent.to());
+        assertEquals(to2, mailContent.to().stream().findFirst().get());
         assertEquals(smtpConfig.from(), mailContent.from());
         assertEquals(signatureExpected,
                 mailContent.signatureVerified() == MailContent.SignatureVerificationResult.SignatureVerified);
@@ -132,9 +132,10 @@ public class SecureMailParserTest {
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
 
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)),
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to2)), null, null,
                 SUBJECT, BODY, true,
                 withEncryption, false, inline,
+                false,
                 attachments);
 
         return mimeMessage;
@@ -153,9 +154,10 @@ public class SecureMailParserTest {
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
 
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)),
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)), null, null,
                 SUBJECT, BODY, true,
                 withEncryption, false, inline,
+                false,
                 attachments);
 
         return mimeMessage;

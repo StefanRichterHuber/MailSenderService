@@ -32,7 +32,7 @@ public class PrivateKeyProvider {
      * Container for the private and public key and the password to decrypt the
      * private key.
      */
-    public record OpenPGPKeyPair(byte[] privateKey, byte[] publicKey, char[] password) {
+    public record OpenPGPKeyPair(String email, byte[] privateKey, byte[] publicKey, char[] password) {
     }
 
     /**
@@ -56,7 +56,8 @@ public class PrivateKeyProvider {
                         smtpConfig.senderSecretKeyFile());
 
                 final char[] password = smtpConfig.senderSecretKeyPassword().toCharArray();
-                return new OpenPGPKeyPair(extractPrivateKey(senderKey), extractPublicKey(senderKey), password);
+                return new OpenPGPKeyPair(senderEmail, extractPrivateKey(senderKey), extractPublicKey(senderKey),
+                        password);
 
             } catch (IOException e) {
                 logger.errorf(e, "Failed to read sender private key for %s", smtpConfig.from());

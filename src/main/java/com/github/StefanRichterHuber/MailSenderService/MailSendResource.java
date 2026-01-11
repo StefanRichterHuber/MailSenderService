@@ -1,7 +1,9 @@
 package com.github.StefanRichterHuber.MailSenderService;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.jboss.resteasy.reactive.RestForm;
@@ -39,7 +41,9 @@ public class MailSendResource {
      */
     @POST
     public void multipart(
-            @RestForm String to,
+            @RestForm List<String> to,
+            @RestForm List<String> cc,
+            @RestForm List<String> bcc,
             @RestForm String subject,
             @RestForm String body,
             @RestForm boolean sign,
@@ -48,13 +52,38 @@ public class MailSendResource {
 
         // Convert all FileUpload to DataSource
         final List<DataSource> attachments = files != null ? files.stream()
-                .map(this::toDataSource)
+                .map(fileUpload -> new FileDataSource(fileUpload.filePath().toFile()))
                 .collect(Collectors.toList()) : Collections.emptyList();
 
-        mailFactory.sendMail(List.of(new InternetAddress(to)), subject, body, sign, encrypt, attachments);
+        final List<InternetAddress> toAddresses = toInternetAddressList(to);
+        final List<InternetAddress> ccAddresses = toInternetAddressList(cc);
+        final List<InternetAddress> bccAddresses = toInternetAddressList(bcc);
+
+        mailFactory.sendMail(toAddresses, ccAddresses, bccAddresses, subject, body, sign, encrypt, attachments);
     }
 
-    private DataSource toDataSource(FileUpload fileUpload) {
-        return new FileDataSource(fileUpload.filePath().toFile());
+    /**
+     * Converts a list of email addresses to a list of InternetAddress objects.
+     * 
+     * @param addresses The list of email addresses.
+     * @return The list of InternetAddress objects.
+     */
+    private List<InternetAddress> toInternetAddressList(Collection<String> addresses) {
+        if (addresses == null || addresses.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return addresses.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(t -> !t.isEmpty())
+                .map(t -> {
+                    try {
+                        return new InternetAddress(t);
+                    } catch (AddressException e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .toList();
     }
 }
