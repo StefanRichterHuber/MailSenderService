@@ -14,7 +14,6 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.Test;
 
-import com.github.StefanRichterHuber.MailSenderService.PrivateKeyProvider;
 import com.github.StefanRichterHuber.MailSenderService.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.SecureMailService;
 import com.github.StefanRichterHuber.MailSenderService.models.MailContent;
@@ -28,7 +27,6 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
-import sop.SOP;
 
 @QuarkusTest
 public class SecureMailParserTest {
@@ -46,6 +44,10 @@ public class SecureMailParserTest {
     @Inject
     @ConfigProperty(name = "mail.to")
     String to;
+
+    @Inject
+    @ConfigProperty(name = "mail.to2")
+    String to2;
 
     @Inject
     SMTPConfig smtpConfig;
@@ -130,7 +132,28 @@ public class SecureMailParserTest {
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
 
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(new InternetAddress(to),
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)),
+                SUBJECT, BODY, true,
+                withEncryption, false, inline,
+                attachments);
+
+        return mimeMessage;
+    }
+
+    /**
+     * Helper method to create a mail.
+     * 
+     * @param withEncryption
+     * @param inline
+     * @return
+     * @throws Exception
+     */
+    private MimeMessage sendMailToMultipleRecipients(boolean withEncryption, boolean inline) throws Exception {
+        List<DataSource> attachments = new ArrayList<>();
+        attachments.add(new FileDataSource(FILE1));
+        attachments.add(new FileDataSource(FILE2));
+
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)),
                 SUBJECT, BODY, true,
                 withEncryption, false, inline,
                 attachments);

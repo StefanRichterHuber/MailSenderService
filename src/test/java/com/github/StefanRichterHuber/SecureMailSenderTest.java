@@ -37,6 +37,10 @@ public class SecureMailSenderTest {
     @ConfigProperty(name = "mail.to")
     String to;
 
+    @Inject
+    @ConfigProperty(name = "mail.to2")
+    String to2;
+
     /**
      * Creates an inline signed mail and writes it to disk.
      * 
@@ -97,6 +101,30 @@ public class SecureMailSenderTest {
         Transport.send(mail);
     }
 
+    @Test
+    public void testCreateInlineEncryptedMailWithMultipleRecipients() throws Exception {
+        var mail = sendMailToMultipleRecipients(true, true);
+
+        String filename = "inline_signed_encrypted_mail_with_multiple_recipients.eml";
+
+        try (OutputStream out = new FileOutputStream(filename)) {
+            mail.writeTo(out);
+        }
+        System.out.println("Email generated: " + filename);
+    }
+
+    @Test
+    public void testCreateEncryptedMailWithMultipleRecipients() throws Exception {
+        var mail = sendMailToMultipleRecipients(true, false);
+
+        String filename = "signed_encrypted_mail_with_multiple_recipients.eml";
+
+        try (OutputStream out = new FileOutputStream(filename)) {
+            mail.writeTo(out);
+        }
+        System.out.println("Email generated: " + filename);
+    }
+
     /**
      * Helper method to create a mail.
      * 
@@ -110,7 +138,29 @@ public class SecureMailSenderTest {
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
 
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(new InternetAddress(to),
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)),
+                SUBJECT, BODY, true,
+                withEncryption, false, inline,
+                attachments);
+
+        return mimeMessage;
+    }
+
+    /**
+     * Helper method to create a mail.
+     * 
+     * @param withEncryption
+     * @param inline
+     * @return
+     * @throws Exception
+     */
+    private MimeMessage sendMailToMultipleRecipients(boolean withEncryption, boolean inline) throws Exception {
+        List<DataSource> attachments = new ArrayList<>();
+        attachments.add(new FileDataSource(FILE1));
+        attachments.add(new FileDataSource(FILE2));
+
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(
+                List.of(new InternetAddress(to), new InternetAddress(to2)),
                 SUBJECT, BODY, true,
                 withEncryption, false, inline,
                 attachments);

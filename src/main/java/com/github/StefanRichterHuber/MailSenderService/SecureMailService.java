@@ -10,11 +10,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.Security;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.jboss.logging.Logger;
@@ -69,7 +72,7 @@ public class SecureMailService {
     /**
      * Sends a signed email message for the configured default sender
      * 
-     * @param to          The recipient's email address.
+     * @param recipients  The recipient's email addresses.
      * @param subject     The subject of the email.
      * @param body        The body of the email.
      * @param sign        Whether to sign the email.
@@ -78,7 +81,7 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public void sendMail(
-            final InternetAddress to,
+            final Collection<InternetAddress> recipients,
             final String subject,
             final String body,
             final boolean sign,
@@ -90,20 +93,21 @@ public class SecureMailService {
         final boolean pgp = sign || encrypt;
         final boolean addAutocryptHeader = smtpConfig.autocrypt();
 
-        logger.infof("Preparing mail to %s with subject %s. Inline PGP: %b , PGP: %b, Autocrypt: %b", to, subject,
+        logger.infof("Preparing mail to %s with subject %s. Inline PGP: %b , PGP: %b, Autocrypt: %b", recipients,
+                subject,
                 inlinePGP, pgp, addAutocryptHeader);
 
         final MimeMessage mimeMessage = pgp
-                ? createPGPMail(to, subject, body, sign, encrypt, addAutocryptHeader,
+                ? createPGPMail(recipients, subject, body, sign, encrypt, addAutocryptHeader,
                         inlinePGP, attachments)
-                : createPlainMail(to, subject, body, addAutocryptHeader, attachments);
+                : createPlainMail(recipients, subject, body, addAutocryptHeader, attachments);
         Transport.send(mimeMessage);
     }
 
     /**
      * Creates an mail without signing and encryption
      * 
-     * @param to                 The recipient's email address.
+     * @param recipients         The recipient's email addresses.
      * @param subject            The subject of the email.
      * @param body               The body of the email.
      * @param addAutocryptHeader Whether to add an autocrypt header.
@@ -112,14 +116,14 @@ public class SecureMailService {
      * @throws Exception
      */
     public MimeMessage createPlainMail(
-            final InternetAddress to,
+            final Collection<InternetAddress> recipients,
             final String subject,
             final String body,
             final boolean addAutocryptHeader,
             final Iterable<DataSource> attachments) throws Exception {
 
         final InternetAddress from = new InternetAddress(smtpConfig.from());
-        MimeMessage mimeMessage = this.createPGPMail(to, from, subject, body, null, null, attachments, session);
+        MimeMessage mimeMessage = this.createPGPMail(from, recipients, subject, body, null, null, attachments, session);
         if (addAutocryptHeader) {
             mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), null);
         }
@@ -129,7 +133,7 @@ public class SecureMailService {
     /**
      * Creates a signed email message for the configured default sender
      * 
-     * @param to                 The recipient's email address.
+     * @param recipients         The recipient's email addresses.
      * @param subject            The subject of the email.
      * @param body               The body of the email.
      * @param sign               Whether to sign the email.
@@ -141,7 +145,7 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public MimeMessage createPGPMail(
-            final InternetAddress to,
+            final Collection<InternetAddress> recipients,
             final String subject,
             final String body,
             final boolean sign,
@@ -152,12 +156,14 @@ public class SecureMailService {
 
         final InternetAddress from = new InternetAddress(smtpConfig.from());
         final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.getByMail(smtpConfig.from()) : null;
-        final byte[] recipientCert = encrypt ? PublicKeySearchService.findByMail(to.toString()) : null;
+        final List<byte[]> recipientCert = encrypt
+                ? recipients.stream().map(recipient -> PublicKeySearchService.findByMail(recipient.toString())).toList()
+                : Collections.emptyList();
 
         MimeMessage mimeMessage = inlinePGP
-                ? createInlinePGPMail(from, to, subject, body, senderKeyPair, recipientCert, attachments,
+                ? createInlinePGPMail(from, recipients, subject, body, senderKeyPair, recipientCert, attachments,
                         session)
-                : createPGPMail(from, to, subject, body, senderKeyPair, recipientCert, attachments,
+                : createPGPMail(from, recipients, subject, body, senderKeyPair, recipientCert, attachments,
                         session);
 
         if (addAutocryptHeader) {
@@ -190,11 +196,11 @@ public class SecureMailService {
      */
     public MimeMessage createInlinePGPMail(
             final InternetAddress from,
-            final InternetAddress to,
+            final Collection<InternetAddress> to,
             final String subject,
             final String body,
             final OpenPGPKeyPair senderKeyPair,
-            final byte[] recipientCert,
+            final Collection<byte[]> recipientCert,
             final Iterable<DataSource> attachments,
             final Session session) throws Exception {
 
@@ -224,9 +230,11 @@ public class SecureMailService {
 
         // Prepare encryption
         // Note: For Inline PGP, we typically want the ASCII Armored output immediately
-        final Encrypt encryptBuilder = sop.encrypt()
-                .withCert(recipientCert)
-                .mode(EncryptAs.text);
+        final Encrypt encryptBuilder = sop.encrypt();
+        for (byte[] cert : recipientCert) {
+            encryptBuilder.withCert(cert);
+        }
+        encryptBuilder.mode(EncryptAs.text);
 
         // If we have a sender key, sign the data *inside* the encryption envelope
         if (senderKey != null) {
@@ -269,8 +277,11 @@ public class SecureMailService {
                 // Encrypt the attachment file individually
                 // We use binary mode for attachments usually, but .asc (text mode)
                 // is safer for email transport to avoid corruption.
-                final Encrypt fileEncryptBuilder = sop.encrypt()
-                        .withCert(recipientCert);
+                final Encrypt fileEncryptBuilder = sop.encrypt();
+
+                for (byte[] cert : recipientCert) {
+                    fileEncryptBuilder.withCert(cert);
+                }
 
                 if (senderKey != null) {
                     fileEncryptBuilder.signWith(senderKey)
@@ -307,7 +318,11 @@ public class SecureMailService {
         // 3. Finalize Message
         final MimeMessage message = new MimeMessage(session);
         message.setFrom(from);
-        message.addRecipient(MimeMessage.RecipientType.TO, to);
+
+        for (InternetAddress recipient : to) {
+            message.addRecipient(MimeMessage.RecipientType.TO, recipient);
+        }
+
         message.setSubject(subject); // Note: Subject is NOT hidden in Inline PGP
         message.setContent(rootMultipart);
         message.saveChanges();
@@ -322,7 +337,7 @@ public class SecureMailService {
      * Mailvelope does not support it.
      * 
      * @param from          The sender's email address. Required.
-     * @param to            The recipient's email address. Required.
+     * @param recipients    The recipient's email address. Required.
      * @param subject       The subject of the email. Required.
      * @param body          The body of the email. Required.
      * @param senderKeyPair The sender's private key. If null, the email
@@ -336,11 +351,11 @@ public class SecureMailService {
      */
     public MimeMessage createPGPMail(
             final InternetAddress from,
-            final InternetAddress to,
+            final Collection<InternetAddress> recipients,
             final String subject,
             final String body,
             final OpenPGPKeyPair senderKeyPair,
-            final byte[] recipientCert,
+            final Collection<byte[]> recipientCert,
             final Iterable<DataSource> attachments,
             Session session) throws Exception {
         // --- Inputs ---
@@ -348,8 +363,8 @@ public class SecureMailService {
         if (from == null) {
             throw new IllegalArgumentException("from must not be null");
         }
-        if (to == null) {
-            throw new IllegalArgumentException("to must not be null");
+        if (recipients == null) {
+            throw new IllegalArgumentException("recipients must not be null");
         }
         if (subject == null || subject.isEmpty()) {
             throw new IllegalArgumentException("subject must not be null or empty");
@@ -359,7 +374,7 @@ public class SecureMailService {
         }
         final boolean protectHeaders = smtpConfig.protectHeaders() && recipientCert != null;
         if (protectHeaders) {
-            logger.debugf("Protecting headers for messages to %s", to);
+            logger.debugf("Protecting headers for messages to %s", recipients);
         }
         final byte[] senderKey = senderKeyPair.privateKey();
         final String senderKeyPassword = new String(senderKeyPair.password());
@@ -395,7 +410,8 @@ public class SecureMailService {
             // These will be signed, ensuring authenticity[cite: 20].
             contentBodyPart.setHeader("Subject", subject);
             contentBodyPart.setHeader("From", from.toString());
-            contentBodyPart.setHeader("To", to.toString());
+            contentBodyPart.setHeader("To",
+                    recipients.stream().map(InternetAddress::toString).collect(Collectors.joining(", ")));
 
             // 2. Append the 'protected-headers="v1"' parameter to the Content-Type.
             // This MUST be on the root of the Cryptographic Payload[cite: 155].
@@ -410,7 +426,9 @@ public class SecureMailService {
         // part is added to a MimeMessage and MimeMessage.saveChanges() is called)
         final MimeMessage tmp = new MimeMessage(session);
         tmp.setFrom(from);
-        tmp.addRecipient(MimeMessage.RecipientType.TO, to);
+        for (InternetAddress recipientTo : recipients) {
+            tmp.addRecipient(MimeMessage.RecipientType.TO, recipientTo);
+        }
         tmp.setSubject(subject);
 
         // Set the content
@@ -470,9 +488,17 @@ public class SecureMailService {
             // Encrypt the ENTIRE signed body part
             final byte[] signedBytes = getCanonicalBytes(signedBodyPart);
 
-            final byte[] encryptedData = sop.encrypt()
-                    .withCert(recipientCert)
-                    .mode(EncryptAs.text) // MIME data is binary
+            // final byte[] encryptedData = sop.encrypt()
+            // .withCert(recipientCert)
+            // .mode(EncryptAs.text) // MIME data is binary
+            // .plaintext(signedBytes)
+            // .toByteArrayAndResult().getBytes();
+
+            Encrypt encrypt = sop.encrypt();
+            for (byte[] cert : recipientCert) {
+                encrypt = encrypt.withCert(cert);
+            }
+            final byte[] encryptedData = encrypt.mode(EncryptAs.text) // MIME data is binary
                     .plaintext(signedBytes)
                     .toByteArrayAndResult().getBytes();
 
@@ -500,7 +526,7 @@ public class SecureMailService {
             finalBodyPart.setContent(encryptedMultipart);
         } else {
             // If no recipient key, just send the signed message
-            logger.debugf("No recipient key found for email: %s. Skipping encryption.", to);
+            logger.debugf("No recipient key found for email: %s. Skipping encryption.", recipients);
             finalBodyPart = signedBodyPart;
         }
 
@@ -508,7 +534,9 @@ public class SecureMailService {
         MimeMessage message = new MimeMessage(
                 session);
         message.setFrom(from);
-        message.addRecipient(MimeMessage.RecipientType.TO, to);
+        for (InternetAddress recipient : recipients) {
+            message.addRecipient(MimeMessage.RecipientType.TO, recipient);
+        }
         if (protectHeaders) {
             // If encrypted, obscure the outer subject[cite: 159, 258].
             message.setSubject(smtpConfig.encryptedSubjectPlaceholder());

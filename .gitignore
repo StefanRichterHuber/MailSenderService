@@ -52,3 +52,5 @@ t1.eml
 inline_signed_encrypted_email.eml
 content_README.md
 expectedContent_README.md
+inline_signed_encrypted_mail_with_multiple_recipients.eml
+signed_encrypted_mail_with_multiple_recipients.eml
