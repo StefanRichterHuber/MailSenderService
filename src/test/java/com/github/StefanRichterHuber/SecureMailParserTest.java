@@ -44,11 +44,11 @@ public class SecureMailParserTest {
 
     @Inject
     @ConfigProperty(name = "mail.to")
-    String to;
+    InternetAddress to;
 
     @Inject
     @ConfigProperty(name = "smtp.from")
-    String to2;
+    InternetAddress to2;
 
     @Inject
     SMTPConfig smtpConfig;
@@ -65,7 +65,7 @@ public class SecureMailParserTest {
         assertNotNull(autocrypt);
         assertEquals(1, autocrypt.size());
         RecipientWithCert cert = autocrypt.get(0);
-        assertEquals(smtpConfig.from(), cert.address().toString());
+        assertEquals(smtpConfig.from(), cert.address());
 
         // Now check if this is valid public key
         byte[] encrypted = sop.encrypt().withCert(cert.cert())
@@ -175,7 +175,7 @@ public class SecureMailParserTest {
         attachments.add(new FileDataSource(SecureMailSenderTest.FILE2));
         attachments.add(new FileDataSource(SecureMailSenderTest.FILE3));
 
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to2)), null, null,
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(to2), null, null,
                 SecureMailSenderTest.SUBJECT, SecureMailSenderTest.BODY, true,
                 withEncryption, true, inline,
                 false,
@@ -199,7 +199,7 @@ public class SecureMailParserTest {
         attachments.add(new FileDataSource(SecureMailSenderTest.FILE3));
 
         MimeMessage mimeMessage = secureMailSender.createPGPMail(
-                List.of(new InternetAddress(to), new InternetAddress(to2)), null, null,
+                List.of(to, to2), null, null,
                 SecureMailSenderTest.SUBJECT, SecureMailSenderTest.BODY, true,
                 withEncryption, false, inline, false,
                 attachments);

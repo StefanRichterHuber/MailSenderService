@@ -4,10 +4,12 @@ import java.util.Collection;
 import java.util.Set;
 
 import jakarta.activation.DataSource;
+import jakarta.mail.Address;
 import jakarta.mail.internet.MimeBodyPart;
 
-public record MailContent(String from, Set<String> to, Set<String> cc, Set<String> bcc, String subject,
-        Collection<MimeBodyPart> bodies, Collection<DataSource> attachments,
+public record MailContent(Address from, Set<? extends Address> to, Set<? extends Address> cc,
+        Set<? extends Address> bcc,
+        String subject, Collection<MimeBodyPart> bodies, Collection<DataSource> attachments,
         SignatureVerificationResult signatureVerified) {
 
     public static enum SignatureVerificationResult {

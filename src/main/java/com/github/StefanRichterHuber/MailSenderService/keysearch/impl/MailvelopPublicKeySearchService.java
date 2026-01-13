@@ -47,7 +47,7 @@ public class MailvelopPublicKeySearchService implements PublicKeySearchService {
                 final RestResponse<MailvelopeKeySearchResponse> response = mailvelopeKeyServerService
                         .searchKeyByEmail(email.toString());
                 if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
-                    logger.infof("Public Key found for email: %s on %s", email, mailvelopeServer);
+                    logger.debugf("Public Key found for email: %s on %s", email, mailvelopeServer);
                     final String armouredKey = response.getEntity().publicKeyArmored();
                     return new RecipientWithCert(email,
                             PublicKeySearchService.dearmorKey(armouredKey.getBytes()));

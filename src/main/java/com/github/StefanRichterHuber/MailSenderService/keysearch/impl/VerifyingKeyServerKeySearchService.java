@@ -52,7 +52,7 @@ public class VerifyingKeyServerKeySearchService implements PublicKeySearchServic
             try {
                 final RestResponse<String> response = openPGPKeyServerService.getByEmail(email.toString());
                 if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
-                    logger.infof("Public Key found for email: %s on %s", email, vksUrl);
+                    logger.debugf("Public Key found for email: %s on %s", email, vksUrl);
                     final String armouredKey = response.getEntity();
                     return new RecipientWithCert(email,
                             PublicKeySearchService.dearmorKey(armouredKey.getBytes()));

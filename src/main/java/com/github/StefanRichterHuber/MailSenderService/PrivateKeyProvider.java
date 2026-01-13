@@ -70,13 +70,13 @@ public class PrivateKeyProvider {
         if (senderEmail == null) {
             return null;
         }
-        if (senderEmail.toString().equals(smtpConfig.from())) {
+        if (senderEmail.equals(smtpConfig.from())) {
             try {
                 final byte[] senderKey = smtpConfig.senderSecretKeyFile().exists()
                         ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
                         : null;
 
-                logger.infof("Sender private key for %s read from configured file %s", smtpConfig.from(),
+                logger.debugf("Sender private key for %s read from configured file %s", smtpConfig.from(),
                         smtpConfig.senderSecretKeyFile());
 
                 final char[] password = smtpConfig.senderSecretKeyPassword().toCharArray();

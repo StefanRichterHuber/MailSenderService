@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -38,11 +39,14 @@ public class SecureMailSenderTest {
 
     @Inject
     @ConfigProperty(name = "mail.to")
-    String to;
+    InternetAddress to;
 
     @ConfigProperty(name = "smtp.from")
     @Inject
-    String to2;
+    InternetAddress to2;
+
+    @Inject
+    Logger logger;
 
     /**
      * Creates an inline signed mail and writes it to disk.
@@ -107,7 +111,7 @@ public class SecureMailSenderTest {
         try (OutputStream out = new FileOutputStream(filename)) {
             mail.writeTo(out);
         }
-        System.out.println("Email generated: " + filename);
+        logger.info("Email generated: " + filename);
     }
 
     @Test
@@ -119,7 +123,7 @@ public class SecureMailSenderTest {
         try (OutputStream out = new FileOutputStream(filename)) {
             mail.writeTo(out);
         }
-        System.out.println("Email generated: " + filename);
+        logger.info("Email generated: " + filename);
     }
 
     /**
@@ -132,7 +136,7 @@ public class SecureMailSenderTest {
      */
     private MimeMessage createMail(boolean withEncryption, boolean inline) throws Exception {
         List<? extends DataSource> attachments = ATTACHMENTS.stream().map(FileDataSource::new).toList();
-        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)), null, null,
+        MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(to), null, null,
                 SUBJECT, BODY, true,
                 withEncryption, false, inline, false,
                 attachments);
@@ -155,7 +159,7 @@ public class SecureMailSenderTest {
         attachments.add(new FileDataSource(FILE3));
 
         MimeMessage mimeMessage = secureMailSender.createPGPMail(
-                List.of(new InternetAddress(to), new InternetAddress(to2)), null, null,
+                List.of(to, to2), null, null,
                 SUBJECT, BODY, true,
                 withEncryption, false, inline, false,
                 attachments);
@@ -180,7 +184,7 @@ public class SecureMailSenderTest {
         try (OutputStream out = new FileOutputStream(filename)) {
             message.writeTo(out);
         }
-        System.out.println("Email generated: " + filename);
+        logger.info("Email generated: " + filename);
     }
 
 }

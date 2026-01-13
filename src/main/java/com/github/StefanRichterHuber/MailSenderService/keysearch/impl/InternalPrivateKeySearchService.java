@@ -32,7 +32,7 @@ public class InternalPrivateKeySearchService implements PublicKeySearchService {
             logger.debugf("Public Key not found for email: %s in private key", email);
             return null;
         }
-        logger.infof("Public Key found for email: %s in private key", email);
+        logger.debugf("Public Key found for email: %s in private key", email);
         return keyPair.toRecipientWithCert();
     }
 

@@ -145,7 +145,7 @@ public class SecureMailService {
             final boolean addAutocryptHeader,
             final Iterable<? extends DataSource> attachments) throws Exception {
 
-        final Address from = new InternetAddress(smtpConfig.from());
+        final Address from = smtpConfig.from();
 
         final List<RecipientWithCert> toWithCerts = to == null ? Collections.emptyList()
                 : to.stream()
@@ -200,7 +200,7 @@ public class SecureMailService {
             final boolean fallbackToPlainMailIfNotAllRecipientsHaveCertificate,
             final Iterable<? extends DataSource> attachments) throws Exception {
 
-        final Address from = new InternetAddress(smtpConfig.from());
+        final Address from = smtpConfig.from();
         final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.findByMail(from) : null;
 
         final List<RecipientWithCert> toWithCerts = to == null ? Collections.emptyList()
@@ -842,7 +842,7 @@ public class SecureMailService {
 
         final byte[] key = Base64.getDecoder().decode(keyBase64);
 
-        return new RecipientWithCert(new InternetAddress(address), key);
+        return new RecipientWithCert(createAddress(address), key);
     }
 
     /**
@@ -915,36 +915,41 @@ public class SecureMailService {
         final MailContent mailContent = parseMimePart(mimeMessage, receiverKeyPair, senderPublicKey);
         // Check if the mail content contained a (encrypted) subject and from field, if
         // not take the one from the mime message
-        final String from = mailContent.from() != null ? mailContent.from() : mimeMessage.getFrom()[0].toString();
+        final Address from = mailContent.from() != null ? mailContent.from() : mimeMessage.getFrom()[0];
         final String subject = mailContent.subject() != null ? mailContent.subject() : mimeMessage.getSubject();
 
-        final Set<String> to = new HashSet<>();
-        if (mailContent.to() != null) {
-            to.addAll(mailContent.to());
-        }
-        if (mimeMessage.getRecipients(RecipientType.TO) != null) {
-            to.addAll(Arrays.stream(mimeMessage.getRecipients(RecipientType.TO)).map(Object::toString).toList());
-        }
+        final Set<Address> to = new HashSet<>();
+        to.addAll(mailContent.to() != null ? mailContent.to() : Collections.emptySet());
+        to.addAll(extractRecipients(mimeMessage, RecipientType.TO));
 
-        final Set<String> cc = new HashSet<>();
-        if (mailContent.cc() != null) {
-            cc.addAll(mailContent.cc());
-        }
-        if (mimeMessage.getRecipients(RecipientType.CC) != null) {
-            cc.addAll(Arrays.stream(mimeMessage.getRecipients(RecipientType.CC)).map(Object::toString).toList());
-        }
+        final Set<Address> cc = new HashSet<>();
+        cc.addAll(mailContent.cc() != null ? mailContent.cc() : Collections.emptySet());
+        cc.addAll(extractRecipients(mimeMessage, RecipientType.CC));
 
-        final Set<String> bcc = new HashSet<>();
-        if (mailContent.bcc() != null) {
-            bcc.addAll(mailContent.bcc());
-        }
-        if (mimeMessage.getRecipients(RecipientType.BCC) != null) {
-            bcc.addAll(Arrays.stream(mimeMessage.getRecipients(RecipientType.BCC)).map(Object::toString).toList());
-        }
+        final Set<Address> bcc = new HashSet<>();
+        bcc.addAll(mailContent.bcc() != null ? mailContent.bcc() : Collections.emptySet());
+        bcc.addAll(extractRecipients(mimeMessage, RecipientType.BCC));
 
         return new MailContent(from, to, cc, bcc, subject, mailContent.bodies(), mailContent.attachments(),
                 mailContent.signatureVerified());
+    }
 
+    /**
+     * Extracts the recipients of the given type
+     * 
+     * @param message MimeMessage to parse
+     * @param type    Type of the recipient
+     * @return Set of recipients
+     * @throws MessagingException
+     */
+    private Set<Address> extractRecipients(MimeMessage message, RecipientType type) throws MessagingException {
+        if (message == null || type == null) {
+            return Collections.emptySet();
+        }
+        if (message.getRecipients(type) != null) {
+            return Arrays.stream(message.getRecipients(type)).collect(Collectors.toSet());
+        }
+        return Collections.emptySet();
     }
 
     /**
@@ -1155,8 +1160,8 @@ public class SecureMailService {
             logger.debugf("Mime part contains protected headers v1");
             // Check if this part has from / to / subject fields -> this happens when the
             // mail is pgp/mime encrypted
-            final String from = Optional.ofNullable(mimePart.getHeader("From")).filter(s -> s.length > 0)
-                    .map(s -> s[0]).orElse(null);
+            final Address from = Optional.ofNullable(mimePart.getHeader("From")).filter(s -> s.length > 0)
+                    .map(s -> s[0]).map(this::createAddress).orElse(null);
             final String subject = Optional.ofNullable(mimePart.getHeader("Subject")).filter(s -> s.length > 0)
                     .map(s -> s[0]).map(t -> {
                         try {
@@ -1166,19 +1171,33 @@ public class SecureMailService {
                             return t;
                         }
                     }).orElse(null);
-            final Set<String> to = Optional.ofNullable(mimePart.getHeader("To")).filter(s -> s.length > 0)
-                    .map(s -> Arrays.stream(s).collect(Collectors.toSet()))
+            final Set<? extends Address> to = Optional.ofNullable(mimePart.getHeader("To")).filter(s -> s.length > 0)
+                    .map(s -> Arrays.stream(s).map(v -> v.trim()).filter(v -> !v.isEmpty()).map(this::createAddress)
+                            .collect(Collectors.toSet()))
                     .orElse(null);
-            final Set<String> cc = Optional.ofNullable(mimePart.getHeader("Cc")).filter(s -> s.length > 0)
-                    .map(s -> Arrays.stream(s).collect(Collectors.toSet()))
+            final Set<? extends Address> cc = Optional.ofNullable(mimePart.getHeader("Cc")).filter(s -> s.length > 0)
+                    .map(s -> Arrays.stream(s).map(v -> v.trim()).filter(v -> !v.isEmpty()).map(this::createAddress)
+                            .collect(Collectors.toSet()))
                     .orElse(null);
-            final Set<String> bcc = Optional.ofNullable(mimePart.getHeader("Bcc")).filter(s -> s.length > 0)
-                    .map(s -> Arrays.stream(s).collect(Collectors.toSet()))
+            final Set<? extends Address> bcc = Optional.ofNullable(mimePart.getHeader("Bcc")).filter(s -> s.length > 0)
+                    .map(s -> Arrays.stream(s).map(v -> v.trim()).filter(v -> !v.isEmpty()).map(this::createAddress)
+                            .collect(Collectors.toSet()))
                     .orElse(null);
             return new MailContent(from, to, cc, bcc, subject, new ArrayList<>(), new ArrayList<>(),
                     MailContent.SignatureVerificationResult.NoSignature);
         }
         return null;
+    }
+
+    /**
+     * Creates an Address Instance from a String
+     */
+    private Address createAddress(String address) {
+        try {
+            return new InternetAddress(address);
+        } catch (AddressException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -1354,14 +1373,14 @@ public class SecureMailService {
             return mailContents.stream().findFirst().orElse(null);
         }
 
-        String from = null;
+        Address from = null;
         String subject = null;
         MailContent.SignatureVerificationResult signatureVerified = MailContent.SignatureVerificationResult.NoSignature;
         final List<MimeBodyPart> bodies = new ArrayList<>();
         final List<DataSource> attachments = new ArrayList<>();
-        final Set<String> to = new HashSet<>();
-        final Set<String> cc = new HashSet<>();
-        final Set<String> bcc = new HashSet<>();
+        final Set<Address> to = new HashSet<>();
+        final Set<Address> cc = new HashSet<>();
+        final Set<Address> bcc = new HashSet<>();
 
         for (MailContent mailContent : mailContents) {
             if (mailContent == null) {

@@ -5,6 +5,7 @@ import java.util.List;
 
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
+import jakarta.mail.internet.InternetAddress;
 
 @ConfigMapping(prefix = "smtp")
 public interface SMTPConfig {
@@ -21,7 +22,7 @@ public interface SMTPConfig {
     /**
      * The sender address to use.
      */
-    String from();
+    InternetAddress from();
 
     /**
      * The SMTP username to use.
