@@ -525,8 +525,7 @@ public class SecureMailService {
         if (protectHeaders) {
             logger.debugf("Protecting headers for messages to %s", to);
         }
-        final byte[] senderKey = senderKeyPair.privateKey();
-        final String senderKeyPassword = new String(senderKeyPair.password());
+
         final List<byte[]> recipientCerts = List.of(to, cc, bcc).stream()
                 .flatMap(Collection::stream)
                 .map(RecipientWithCert::cert)
@@ -606,11 +605,11 @@ public class SecureMailService {
         // Save changes
         tmp.saveChanges();
 
-        if (senderKey == null) {
-            logger.debugf("No sender key found for email: %s. Skipping signature.", from);
+        if (senderKeyPair == null || senderKeyPair.privateKey() == null || senderKeyPair.privateKey().length == 0) {
+            logger.debugf("No private key found for email: %s. Skipping signature.", from);
             return tmp;
         } else {
-            logger.debugf("Sender key found for email: %s. Signing message.", from);
+            logger.debugf("Private key found for email: %s. Signing message.", from);
         }
 
         // --- 2. Sign the Content (PGP/MIME multipart/signed) ---
@@ -619,8 +618,8 @@ public class SecureMailService {
 
         // Generate detached signature
         final byte[] signature = sop.sign()
-                .key(senderKey)
-                .withKeyPassword(senderKeyPassword)
+                .key(senderKeyPair.privateKey())
+                .withKeyPassword(new String(senderKeyPair.password()))
                 .mode(SignAs.text) // PGP/MIME uses detached signatures
                 .data(contentBytes)
                 .toByteArrayAndResult().getBytes();
