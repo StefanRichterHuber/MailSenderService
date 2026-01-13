@@ -9,10 +9,12 @@ import java.util.regex.Pattern;
 import org.jboss.logging.Logger;
 
 import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
+import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
 
 import io.quarkus.cache.CacheResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.mail.Address;
 
 /**
  * Provides the private and public key for the configured sender email. This
@@ -24,6 +26,22 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class PrivateKeyProvider {
 
+    /**
+     * Regex to find the public key block (DOTALL mode allows . to match newlines)
+     * in a mixed key ascii-armored file
+     */
+    private static final Pattern PGP_PUBLIC_KEY_PATTERN = Pattern.compile(
+            "(-----BEGIN PGP PUBLIC KEY BLOCK-----.*?-----END PGP PUBLIC KEY BLOCK-----)",
+            Pattern.DOTALL);
+
+    /**
+     * Regex to find the private key block (DOTALL mode allows . to match newlines)
+     * in a mixed key ascii-armored file
+     */
+    private static final Pattern PGP_PRIVATE_KEY_PATTERN = Pattern.compile(
+            "(-----BEGIN PGP PRIVATE KEY BLOCK-----.*?-----END PGP PRIVATE KEY BLOCK-----)",
+            Pattern.DOTALL);
+
     @Inject
     SMTPConfig smtpConfig;
 
@@ -34,7 +52,11 @@ public class PrivateKeyProvider {
      * Container for the private and public key and the password to decrypt the
      * private key.
      */
-    public record OpenPGPKeyPair(String email, byte[] privateKey, byte[] publicKey, char[] password) {
+    public record OpenPGPKeyPair(Address email, byte[] privateKey, byte[] publicKey, char[] password) {
+
+        public RecipientWithCert toRecipientWithCert() {
+            return new RecipientWithCert(email, publicKey);
+        }
     }
 
     /**
@@ -44,11 +66,11 @@ public class PrivateKeyProvider {
      * @return The OpenPGP key pair for the given sender email, if found
      */
     @CacheResult(cacheName = "sender-private-key-cache")
-    public OpenPGPKeyPair findByMail(final String senderEmail) {
-        if (senderEmail == null || senderEmail.isEmpty()) {
+    public OpenPGPKeyPair findByMail(final Address senderEmail) {
+        if (senderEmail == null) {
             return null;
         }
-        if (senderEmail.equals(smtpConfig.from())) {
+        if (senderEmail.toString().equals(smtpConfig.from())) {
             try {
                 final byte[] senderKey = smtpConfig.senderSecretKeyFile().exists()
                         ? Files.readAllBytes(smtpConfig.senderSecretKeyFile().toPath())
@@ -58,7 +80,8 @@ public class PrivateKeyProvider {
                         smtpConfig.senderSecretKeyFile());
 
                 final char[] password = smtpConfig.senderSecretKeyPassword().toCharArray();
-                return new OpenPGPKeyPair(senderEmail, extractPrivateKey(senderKey), extractPublicKey(senderKey),
+                return new OpenPGPKeyPair(senderEmail, extractPrivateKey(senderKey),
+                        extractPublicKey(senderKey),
                         password);
 
             } catch (IOException e) {
@@ -76,12 +99,7 @@ public class PrivateKeyProvider {
     private static byte[] extractPrivateKey(byte[] keyFileBytes) {
         final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
 
-        // Regex to find the private key block (DOTALL mode allows . to match newlines)
-        final Pattern pattern = Pattern.compile(
-                "(-----BEGIN PGP PRIVATE KEY BLOCK-----.*?-----END PGP PRIVATE KEY BLOCK-----)",
-                Pattern.DOTALL);
-
-        final Matcher matcher = pattern.matcher(content);
+        final Matcher matcher = PGP_PRIVATE_KEY_PATTERN.matcher(content);
         if (matcher.find()) {
             return matcher.group(1).getBytes(StandardCharsets.UTF_8);
         } else {
@@ -99,12 +117,7 @@ public class PrivateKeyProvider {
         }
         final String content = new String(keyFileBytes, StandardCharsets.UTF_8);
 
-        // Regex to find the private key block (DOTALL mode allows . to match newlines)
-        final Pattern pattern = Pattern.compile(
-                "(-----BEGIN PGP PUBLIC KEY BLOCK-----.*?-----END PGP PUBLIC KEY BLOCK-----)",
-                Pattern.DOTALL);
-
-        final Matcher matcher = pattern.matcher(content);
+        final Matcher matcher = PGP_PUBLIC_KEY_PATTERN.matcher(content);
         if (matcher.find()) {
             return matcher.group(1).getBytes(StandardCharsets.UTF_8);
         } else {

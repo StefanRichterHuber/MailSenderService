@@ -23,12 +23,15 @@ import jakarta.mail.internet.MimeMessage;
 @QuarkusTest
 public class SecureMailSenderTest {
 
-    private static final File FILE1 = new File("README.md");
-    private static final File FILE2 = new File("pom.xml");
+    public static final File FILE1 = new File("README.md");
+    public static final File FILE2 = new File("pom.xml");
+    public static final File FILE3 = new File("testimage.jpg");
 
-    private static final String BODY = "Here is the requested document.";
+    public static final List<File> ATTACHMENTS = List.of(FILE1, FILE2, FILE3);
 
-    private static final String SUBJECT = "Secure Document";
+    public static final String BODY = "Here is the requested document. Includes several special characters: \"äöü\"";
+
+    public static final String SUBJECT = "Secure Document - with some special Chars: \"äöü\"";
 
     @Inject
     SecureMailService secureMailSender;
@@ -128,10 +131,7 @@ public class SecureMailSenderTest {
      * @throws Exception
      */
     private MimeMessage createMail(boolean withEncryption, boolean inline) throws Exception {
-        List<DataSource> attachments = new ArrayList<>();
-        attachments.add(new FileDataSource(FILE1));
-        attachments.add(new FileDataSource(FILE2));
-
+        List<? extends DataSource> attachments = ATTACHMENTS.stream().map(FileDataSource::new).toList();
         MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to)), null, null,
                 SUBJECT, BODY, true,
                 withEncryption, false, inline, false,
@@ -152,6 +152,7 @@ public class SecureMailSenderTest {
         List<DataSource> attachments = new ArrayList<>();
         attachments.add(new FileDataSource(FILE1));
         attachments.add(new FileDataSource(FILE2));
+        attachments.add(new FileDataSource(FILE3));
 
         MimeMessage mimeMessage = secureMailSender.createPGPMail(
                 List.of(new InternetAddress(to), new InternetAddress(to2)), null, null,

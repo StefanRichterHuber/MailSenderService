@@ -10,11 +10,13 @@ import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.keysearch.PublicKeySearchService;
 import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeySearchResponse;
 import com.github.StefanRichterHuber.MailSenderService.models.MailvelopeKeyServerService;
+import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
 
 import io.quarkus.cache.CacheResult;
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.mail.Address;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 
@@ -33,8 +35,8 @@ public class MailvelopPublicKeySearchService implements PublicKeySearchService {
 
     @Override
     @CacheResult(cacheName = "mailvelope-public-key-cache")
-    public byte[] searchKeyByEmail(String email) {
-        if (email == null || email.isEmpty()) {
+    public RecipientWithCert findByMail(Address email) {
+        if (email == null) {
             return null;
         }
         for (String mailvelopeServer : smtpConfig.mailvelopeKeyServers()) {
@@ -43,11 +45,12 @@ public class MailvelopPublicKeySearchService implements PublicKeySearchService {
                     .build(MailvelopeKeyServerService.class);
             try {
                 final RestResponse<MailvelopeKeySearchResponse> response = mailvelopeKeyServerService
-                        .searchKeyByEmail(email);
+                        .searchKeyByEmail(email.toString());
                 if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
                     logger.infof("Public Key found for email: %s on %s", email, mailvelopeServer);
                     final String armouredKey = response.getEntity().publicKeyArmored();
-                    return PublicKeySearchService.dearmorKey(armouredKey.getBytes());
+                    return new RecipientWithCert(email,
+                            PublicKeySearchService.dearmorKey(armouredKey.getBytes()));
                 }
                 logger.debugf("Public Key not found for email: %s on %s", email, mailvelopeServer);
                 continue;

@@ -1,9 +1,9 @@
 package com.github.StefanRichterHuber.MailSenderService.models;
 
-import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.Address;
 
 /**
  * Container for a recipient and its public certificate.
  */
-public record RecipientWithCert(InternetAddress address, byte[] cert) {
+public record RecipientWithCert(Address address, byte[] cert) {
 }

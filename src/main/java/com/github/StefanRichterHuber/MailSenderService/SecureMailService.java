@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.Security;
 import java.util.ArrayList;
@@ -35,15 +36,18 @@ import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
 import jakarta.activation.DataSource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.mail.Address;
 import jakarta.mail.Message.RecipientType;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Session;
 import jakarta.mail.Transport;
+import jakarta.mail.internet.AddressException;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
 import jakarta.mail.internet.MimePart;
+import jakarta.mail.internet.MimeUtility;
 import jakarta.mail.util.ByteArrayDataSource;
 import sop.DecryptionResult;
 import sop.ReadyWithResult;
@@ -57,6 +61,15 @@ import sop.operation.Encrypt;
 
 @ApplicationScoped
 public class SecureMailService {
+
+    private static final Pattern PGP_MESSAGE_PATTERN = Pattern.compile(
+            "(-----BEGIN PGP MESSAGE-----.*?-----END PGP MESSAGE-----)",
+            Pattern.DOTALL);
+
+    static {
+        Security.addProvider(new BouncyCastleProvider());
+    }
+    private static final SOP sop = new org.pgpainless.sop.SOPImpl();
 
     @Inject
     SMTPConfig smtpConfig;
@@ -73,11 +86,6 @@ public class SecureMailService {
     @Inject
     Session session;
 
-    static {
-        Security.addProvider(new BouncyCastleProvider());
-    }
-    private static final SOP sop = new org.pgpainless.sop.SOPImpl();
-
     /**
      * Sends a signed email message for the configured default sender
      * 
@@ -90,14 +98,14 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public void sendMail(
-            final Collection<InternetAddress> to,
-            final Collection<InternetAddress> cc,
-            final Collection<InternetAddress> bcc,
+            final Collection<? extends Address> to,
+            final Collection<? extends Address> cc,
+            final Collection<? extends Address> bcc,
             final String subject,
             final String body,
             final boolean sign,
             final boolean encrypt,
-            final Iterable<DataSource> attachments) throws Exception {
+            final Iterable<? extends DataSource> attachments) throws Exception {
 
         // Inline PGP is only supported if encryption is enabled
         final boolean inlinePGP = smtpConfig.inlinePGP() && encrypt;
@@ -129,15 +137,15 @@ public class SecureMailService {
      * @throws Exception
      */
     public MimeMessage createPlainMail(
-            final Collection<InternetAddress> to,
-            final Collection<InternetAddress> cc,
-            final Collection<InternetAddress> bcc,
+            final Collection<? extends Address> to,
+            final Collection<? extends Address> cc,
+            final Collection<? extends Address> bcc,
             final String subject,
             final String body,
             final boolean addAutocryptHeader,
-            final Iterable<DataSource> attachments) throws Exception {
+            final Iterable<? extends DataSource> attachments) throws Exception {
 
-        final InternetAddress from = new InternetAddress(smtpConfig.from());
+        final Address from = new InternetAddress(smtpConfig.from());
 
         final List<RecipientWithCert> toWithCerts = to == null ? Collections.emptyList()
                 : to.stream()
@@ -160,7 +168,7 @@ public class SecureMailService {
         MimeMessage mimeMessage = this.createPGPMail(from, toWithCerts, ccWithCerts, bccWithCerts, subject, body, null,
                 attachments, session);
         if (addAutocryptHeader) {
-            mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), null);
+            mimeMessage = addAutocryptHeader(mimeMessage);
         }
         return mimeMessage;
     }
@@ -180,9 +188,9 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public MimeMessage createPGPMail(
-            final Collection<InternetAddress> to,
-            final Collection<InternetAddress> cc,
-            final Collection<InternetAddress> bcc,
+            final Collection<? extends Address> to,
+            final Collection<? extends Address> cc,
+            final Collection<? extends Address> bcc,
             final String subject,
             final String body,
             final boolean sign,
@@ -190,26 +198,26 @@ public class SecureMailService {
             final boolean addAutocryptHeader,
             final boolean inlinePGP,
             final boolean fallbackToPlainMailIfNotAllRecipientsHaveCertificate,
-            final Iterable<DataSource> attachments) throws Exception {
+            final Iterable<? extends DataSource> attachments) throws Exception {
 
-        final InternetAddress from = new InternetAddress(smtpConfig.from());
-        final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.findByMail(smtpConfig.from()) : null;
+        final Address from = new InternetAddress(smtpConfig.from());
+        final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.findByMail(from) : null;
 
         final List<RecipientWithCert> toWithCerts = to == null ? Collections.emptyList()
                 : to.stream()
-                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient.toString())
+                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient)
                                 : new RecipientWithCert(recipient, null))
                         .toList();
 
         final List<RecipientWithCert> ccWithCerts = cc == null ? Collections.emptyList()
                 : cc.stream()
-                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient.toString())
+                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient)
                                 : new RecipientWithCert(recipient, null))
                         .toList();
 
         final List<RecipientWithCert> bccWithCerts = bcc == null ? Collections.emptyList()
                 : bcc.stream()
-                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient.toString())
+                        .map(recipient -> encrypt ? publicKeyProvider.findByMail(recipient)
                                 : new RecipientWithCert(recipient, null))
                         .toList();
 
@@ -243,7 +251,7 @@ public class SecureMailService {
                         session);
 
         if (addAutocryptHeader) {
-            mimeMessage = addAutocryptHeader(mimeMessage, from.toString(), senderKeyPair);
+            mimeMessage = addAutocryptHeader(mimeMessage);
         }
 
         return mimeMessage;
@@ -284,14 +292,14 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public MimeMessage createInlinePGPMail(
-            final InternetAddress from,
+            final Address from,
             final Collection<RecipientWithCert> to,
             final Collection<RecipientWithCert> cc,
             final Collection<RecipientWithCert> bcc,
             final String subject,
             final String body,
             final OpenPGPKeyPair senderKeyPair,
-            final Iterable<DataSource> attachments,
+            final Iterable<? extends DataSource> attachments,
             final Session session) throws Exception {
 
         // Validate inputs, one after another
@@ -461,14 +469,14 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public MimeMessage createPGPMail(
-            final InternetAddress from,
+            final Address from,
             final Collection<RecipientWithCert> to,
             final Collection<RecipientWithCert> cc,
             final Collection<RecipientWithCert> bcc,
             final String subject,
             final String body,
             final OpenPGPKeyPair senderKeyPair,
-            final Iterable<DataSource> attachments,
+            final Iterable<? extends DataSource> attachments,
             Session session) throws Exception {
         // --- Inputs ---
         // Validate inputs, one after another
@@ -554,16 +562,18 @@ public class SecureMailService {
             // ---------------------------------------------------------
             // 1. Add headers to the Cryptographic Payload (the inner content part).
             // These will be signed, ensuring authenticity[cite: 20].
-            contentBodyPart.setHeader("Subject", subject);
+
+            final String encodedSubject = MimeUtility.encodeText(subject);
+            contentBodyPart.setHeader("Subject", encodedSubject);
             contentBodyPart.setHeader("From", from.toString());
             contentBodyPart.setHeader("To",
-                    to.stream().map(RecipientWithCert::address).map(InternetAddress::toString)
+                    to.stream().map(RecipientWithCert::address).map(Address::toString)
                             .collect(Collectors.joining(", ")));
             contentBodyPart.setHeader("Cc",
-                    cc.stream().map(RecipientWithCert::address).map(InternetAddress::toString)
+                    cc.stream().map(RecipientWithCert::address).map(Address::toString)
                             .collect(Collectors.joining(", ")));
             contentBodyPart.setHeader("Bcc",
-                    bcc.stream().map(RecipientWithCert::address).map(InternetAddress::toString)
+                    bcc.stream().map(RecipientWithCert::address).map(Address::toString)
                             .collect(Collectors.joining(", ")));
 
             // 2. Append the 'protected-headers="v1"' parameter to the Content-Type.
@@ -711,7 +721,8 @@ public class SecureMailService {
     }
 
     /**
-     * Adds an Autocrypt header to a Jakarta Mail message.
+     * Adds an Autocrypt header to a Jakarta Mail message with the certificate of
+     * the sender.
      * 
      * @param message The message to add the header to.
      * @return The message with the header added.
@@ -721,28 +732,42 @@ public class SecureMailService {
     public MimeMessage addAutocryptHeader(final MimeMessage message)
             throws MessagingException, IOException {
 
-        final OpenPGPKeyPair senderKeyPair = privateKeyProvider.findByMail(smtpConfig.from());
-        return addAutocryptHeader(message, smtpConfig.from(), senderKeyPair);
+        final RecipientWithCert sender = message.getFrom() == null ? null
+                : List.of(message.getFrom()).stream()
+                        .map(publicKeyProvider::findByMail)
+                        .findFirst()
+                        .orElse(null);
+        if (sender == null) {
+            logger.warnf("No public key found for sender: %s. Unable to add Autocrypt header.",
+                    message.getFrom() != null ? Arrays.asList(message.getFrom()).stream().map(Address::toString)
+                            .collect(Collectors.joining(", ")) : "[no from address]");
+            return message;
+        }
+        return addAutocryptHeader(message, sender);
     }
 
     /**
      * Adds an Autocrypt header to a Jakarta Mail message.
      *
-     * @param message     The MimeMessage to modify.
-     * @param senderEmail The email address of the sender (must match the 'From'
-     *                    header).
-     * @param keyPair     The OpenPGP key pair (private and public key).
+     * @param message The MimeMessage to modify.
+     * @param sender  The RecipientWithCert containing the public key.
      * @throws MessagingException If the header cannot be set.
      * @throws IOException
      */
-    private MimeMessage addAutocryptHeader(final MimeMessage message, final String senderEmail,
-            final OpenPGPKeyPair keyPair)
+    public MimeMessage addAutocryptHeader(final MimeMessage message,
+            final RecipientWithCert sender)
             throws MessagingException, IOException {
-        if (keyPair == null || keyPair.publicKey() == null || keyPair.publicKey().length == 0) {
+        final String senderEmail = Optional.ofNullable(sender).map(RecipientWithCert::address)
+                .map(Address::toString).orElse(null);
+        if (senderEmail == null) {
+            logger.warnf("No sender email found. Unable to add Autocrypt header.");
+            return message;
+        }
+        if (sender == null || sender.cert() == null || sender.cert().length == 0) {
             logger.warnf("No public key provided for sender: %s. Unable to add Autocrypt header.", senderEmail);
             return message;
         }
-        final byte[] publicKeyBytes = decodePublicKey(keyPair.publicKey());
+        final byte[] publicKeyBytes = decodePublicKey(sender.cert());
 
         // 1. Encode the raw key bytes to Base64
         // The Autocrypt spec requires the keydata to be the Base64 representation of
@@ -764,6 +789,64 @@ public class SecureMailService {
     }
 
     /**
+     * Parses the autocrypt header from a mime message and returns the sender's
+     * public key.
+     * 
+     * @param mimeMessage The mime message to parse
+     * @return The sender's public key(s)
+     * @throws MessagingException
+     */
+    public List<RecipientWithCert> parseAutocryptHeader(final MimeMessage mimeMessage) throws MessagingException {
+        if (mimeMessage == null) {
+            return Collections.emptyList();
+        }
+        final List<RecipientWithCert> result = new ArrayList<>();
+        for (String autocryptHeader : mimeMessage.getHeader("Autocrypt")) {
+            final RecipientWithCert recipientWithCert = parseAutocryptHeader(autocryptHeader);
+            if (recipientWithCert != null) {
+                result.add(recipientWithCert);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Parses a single autocrypt header line
+     * 
+     * @param autocryptHeader Line to parse
+     * @return RecipientWithCert if line valid, null if not
+     * @throws AddressException
+     */
+    private RecipientWithCert parseAutocryptHeader(final String autocryptHeader) throws AddressException {
+        if (autocryptHeader == null || autocryptHeader.isEmpty() || !autocryptHeader.contains("addr")
+                || !autocryptHeader.contains("keydata")) {
+            return null;
+        }
+        final String[] headerParts = autocryptHeader.split(";");
+        String address = null;
+        String keyBase64 = null;
+        @SuppressWarnings("unused")
+        String preferEncrypt = null;
+        for (String headerPart : headerParts) {
+            headerPart = headerPart.trim();
+            if (headerPart.startsWith("addr=")) {
+                address = headerPart.substring("addr=".length());
+            } else if (headerPart.startsWith("keydata=")) {
+                keyBase64 = headerPart.substring("keydata=".length());
+            } else if (headerPart.startsWith("prefer-encrypt=")) {
+                preferEncrypt = headerPart.substring("prefer-encrypt=".length());
+            }
+        }
+        if (address == null || keyBase64 == null) {
+            return null;
+        }
+
+        final byte[] key = Base64.getDecoder().decode(keyBase64);
+
+        return new RecipientWithCert(new InternetAddress(address), key);
+    }
+
+    /**
      * Parses a mime message. If parts / the whole message is encrypted, it will be
      * decrypted and signed parts will be verified. Supports plain text and HTML
      * content, simple pgp and pgp/mime encrypted content.
@@ -780,18 +863,15 @@ public class SecureMailService {
             throw new IllegalArgumentException("MimeMessage must not be null");
         }
 
-        final String from = mimeMessage.getFrom()[0].toString();
-        final List<String> to = mimeMessage.getRecipients(RecipientType.TO) == null ? List.of()
-                : Arrays.stream(mimeMessage.getRecipients(RecipientType.TO)).map(Object::toString)
-                        .toList();
-        final List<String> cc = mimeMessage.getRecipients(RecipientType.CC) == null ? List.of()
-                : Arrays.stream(mimeMessage.getRecipients(RecipientType.CC)).map(Object::toString)
-                        .toList();
-        final List<String> bcc = mimeMessage.getRecipients(RecipientType.BCC) == null ? List.of()
-                : Arrays.stream(mimeMessage.getRecipients(RecipientType.BCC)).map(Object::toString)
-                        .toList();
+        final Address from = mimeMessage.getFrom()[0];
+        final List<Address> to = mimeMessage.getRecipients(RecipientType.TO) == null ? List.of()
+                : Arrays.stream(mimeMessage.getRecipients(RecipientType.TO)).toList();
+        final List<Address> cc = mimeMessage.getRecipients(RecipientType.CC) == null ? List.of()
+                : Arrays.stream(mimeMessage.getRecipients(RecipientType.CC)).toList();
+        final List<Address> bcc = mimeMessage.getRecipients(RecipientType.BCC) == null ? List.of()
+                : Arrays.stream(mimeMessage.getRecipients(RecipientType.BCC)).toList();
 
-        final List<String> recipients = List.of(to, cc, bcc).stream().flatMap(List::stream).toList();
+        final List<Address> recipients = List.of(to, cc, bcc).stream().flatMap(List::stream).toList();
         // We need to get at least one private key for one of the recivers
         final OpenPGPKeyPair receiverKeyPair = recipients.stream().map(privateKeyProvider::findByMail)
                 .filter(Objects::nonNull).findFirst()
@@ -954,6 +1034,9 @@ public class SecureMailService {
     private MailContent parseMimePart(MimePart mimePart, OpenPGPKeyPair receiverKeyPair,
             RecipientWithCert senderPublicKey)
             throws MessagingException, IOException {
+        final List<MailContent> mailContents = new ArrayList<>();
+        final MailContent headers = extractProtectedMailHeaders(mimePart);
+        mailContents.add(headers);
         if (mimePart.isMimeType("multipart/signed")) {
             // This is a signed but not encrypted content block
 
@@ -986,30 +1069,9 @@ public class SecureMailService {
                     signatureVerified ? MailContent.SignatureVerificationResult.SignatureVerified
                             : MailContent.SignatureVerificationResult.SignatureInvalid);
 
-            return this.mergeMailContents(List.of(mc, parseMimePart(signedPart, receiverKeyPair, senderPublicKey)));
+            mailContents.add(mc);
+            mailContents.add(parseMimePart(signedPart, receiverKeyPair, senderPublicKey));
         } else if (mimePart.isMimeType("multipart/*")) {
-            final List<MailContent> mailContents = new ArrayList<>();
-            if (mimePart.getContentType().contains("protected-headers=\"v1\"")) {
-                logger.debugf("Mime part contains protected headers v1");
-                // Check if this part has from / to / subject fields -> this happens when the
-                // mail is pgp/mime encrypted
-                final String from = Optional.ofNullable(mimePart.getHeader("From")).filter(s -> s.length > 0)
-                        .map(s -> s[0]).orElse(null);
-                final String subject = Optional.ofNullable(mimePart.getHeader("Subject")).filter(s -> s.length > 0)
-                        .map(s -> s[0]).orElse(null);
-                final Set<String> to = Optional.ofNullable(mimePart.getHeader("To")).filter(s -> s.length > 0)
-                        .map(s -> (Set<String>) Arrays.stream(s).map(Object::toString).collect(Collectors.toSet()))
-                        .orElse(null);
-                final Set<String> cc = Optional.ofNullable(mimePart.getHeader("Cc")).filter(s -> s.length > 0)
-                        .map(s -> (Set<String>) Arrays.stream(s).map(Object::toString).collect(Collectors.toSet()))
-                        .orElse(null);
-                final Set<String> bcc = Optional.ofNullable(mimePart.getHeader("Bcc")).filter(s -> s.length > 0)
-                        .map(s -> (Set<String>) Arrays.stream(s).map(Object::toString).collect(Collectors.toSet()))
-                        .orElse(null);
-                mailContents.add(new MailContent(from, to, cc, bcc, subject, new ArrayList<>(), new ArrayList<>(),
-                        MailContent.SignatureVerificationResult.NoSignature));
-            }
-
             // Recursivle parse all parts
             if (mimePart.getContent() instanceof MimeMultipart) {
                 final MimeMultipart mimeMultipart = (MimeMultipart) mimePart.getContent();
@@ -1019,9 +1081,40 @@ public class SecureMailService {
                             receiverKeyPair, senderPublicKey);
                     mailContents.add(mailContent);
                 }
-                return mergeMailContents(mailContents);
+            } else {
+                logger.warnf("Unknown content type %s for mime type %s", mimePart.getContent(),
+                        mimePart.getContentType());
             }
-        } else if (mimePart.isMimeType("text/plain") || mimePart.isMimeType("text/html")) {
+        } else if ((mimePart.getDisposition() != null && mimePart.getDisposition().contains("attachment"))
+                || mimePart.isMimeType("application/*")) {
+            final byte[] content = getBytesFromMimePart(mimePart);
+            final ConditionalDecryptionResult decryptedResult = decryptIfEncrypted(content, receiverKeyPair,
+                    senderPublicKey);
+            final byte[] decryptedContent = decryptedResult.content();
+
+            final String fileName = Optional.ofNullable(mimePart.getFileName())
+                    .map(f -> {
+                        // Clean up file name ( remove extensions like .pgp, .asc, .gpg )
+                        if (decryptedResult.isEncrypted() && f != null
+                                && (f.endsWith(".asc") || f.endsWith(".pgp") || f.endsWith(".gpg"))) {
+                            return f.substring(0, f.lastIndexOf('.'));
+                        }
+                        return f;
+                    })
+                    .orElseGet(() -> {
+                        try {
+                            return mimePart.getContentID();
+                        } catch (MessagingException e) {
+                            return "";
+                        }
+                    });
+
+            final ByteArrayDataSource dataSource = new ByteArrayDataSource(decryptedContent, mimePart.getContentType());
+            dataSource.setName(fileName);
+            mailContents.add(new MailContent(null, null, null, null, null, null, List.of(dataSource),
+                    decryptedResult.signatureVerified()));
+
+        } else if (mimePart.isMimeType("text/*")) {
             final byte[] content = getBytesFromMimePart(mimePart);
             final ConditionalDecryptionResult decryptedResult = decryptIfEncrypted(content, receiverKeyPair,
                     senderPublicKey);
@@ -1039,31 +1132,53 @@ public class SecureMailService {
                 mimeBodyPart.setContentID(mimePart.getContentID());
             if (mimePart.getContentLanguage() != null)
                 mimeBodyPart.setContentLanguage(mimePart.getContentLanguage());
-            return new MailContent(null, null, null, null, null, List.of(mimeBodyPart), null,
-                    decryptedResult.signatureVerified());
-        } else if (mimePart.isMimeType("application/*")) {
-            final byte[] content = getBytesFromMimePart(mimePart);
-            final ConditionalDecryptionResult decryptedResult = decryptIfEncrypted(content, receiverKeyPair,
-                    senderPublicKey);
-            final byte[] decryptedContent = decryptedResult.content();
-
-            String fileName = mimePart.getFileName();
-            if (fileName == null) {
-                fileName = mimePart.getContentID();
-            }
-            // Clean up file name ( remove extensions like .pgp, .asc, .gpg )
-            if (fileName != null
-                    && (fileName.endsWith(".asc") || fileName.endsWith(".pgp") || fileName.endsWith(".gpg"))) {
-                fileName = fileName.substring(0, fileName.lastIndexOf('.'));
-            }
-
-            final ByteArrayDataSource dataSource = new ByteArrayDataSource(decryptedContent, mimePart.getContentType());
-            dataSource.setName(fileName);
-            return new MailContent(null, null, null, null, null, null, List.of(dataSource),
-                    decryptedResult.signatureVerified());
-
+            mailContents.add(new MailContent(null, null, null, null, null, List.of(mimeBodyPart), null,
+                    decryptedResult.signatureVerified()));
+        } else {
+            logger.warnf("Unsupported mime type: %s", mimePart.getContentType());
         }
-        logger.warnf("Unsupported mime type: %s", mimePart.getContentType());
+        return mergeMailContents(mailContents);
+    }
+
+    /**
+     * If the given MimePart contains 'protected-headers', extract header values and
+     * return as MailContent
+     * 
+     * @param mimePart MimePart to process
+     * @return MailContent with headers or null if nothing found
+     * @throws MessagingException
+     */
+    private MailContent extractProtectedMailHeaders(final MimePart mimePart) throws MessagingException {
+        if (mimePart == null) {
+            return null;
+        }
+        if (mimePart.getContentType().contains("protected-headers=\"v1\"")) {
+            logger.debugf("Mime part contains protected headers v1");
+            // Check if this part has from / to / subject fields -> this happens when the
+            // mail is pgp/mime encrypted
+            final String from = Optional.ofNullable(mimePart.getHeader("From")).filter(s -> s.length > 0)
+                    .map(s -> s[0]).orElse(null);
+            final String subject = Optional.ofNullable(mimePart.getHeader("Subject")).filter(s -> s.length > 0)
+                    .map(s -> s[0]).map(t -> {
+                        try {
+                            return MimeUtility.decodeText(t);
+                        } catch (UnsupportedEncodingException e) {
+                            logger.warnf("Failed to decode mail subject %s", t);
+                            return t;
+                        }
+                    }).orElse(null);
+            final Set<String> to = Optional.ofNullable(mimePart.getHeader("To")).filter(s -> s.length > 0)
+                    .map(s -> Arrays.stream(s).collect(Collectors.toSet()))
+                    .orElse(null);
+            final Set<String> cc = Optional.ofNullable(mimePart.getHeader("Cc")).filter(s -> s.length > 0)
+                    .map(s -> Arrays.stream(s).collect(Collectors.toSet()))
+                    .orElse(null);
+            final Set<String> bcc = Optional.ofNullable(mimePart.getHeader("Bcc")).filter(s -> s.length > 0)
+                    .map(s -> Arrays.stream(s).collect(Collectors.toSet()))
+                    .orElse(null);
+            return new MailContent(from, to, cc, bcc, subject, new ArrayList<>(), new ArrayList<>(),
+                    MailContent.SignatureVerificationResult.NoSignature);
+        }
         return null;
     }
 
@@ -1130,10 +1245,7 @@ public class SecureMailService {
             return new ConditionalDecryptionResult(content, false, SignatureVerificationResult.NoSignature);
         }
 
-        final Pattern pattern = Pattern.compile(
-                "(-----BEGIN PGP MESSAGE-----.*?-----END PGP MESSAGE-----)",
-                Pattern.DOTALL);
-        final Matcher matcher = pattern.matcher(new String(content));
+        final Matcher matcher = PGP_MESSAGE_PATTERN.matcher(new String(content));
         if (matcher.find()) {
             boolean isSigned = false;
             final String encodedContent = matcher.group(1);
@@ -1235,15 +1347,22 @@ public class SecureMailService {
      * @param mailContents the mail contents to merge
      * @return the merged mail content
      */
-    private MailContent mergeMailContents(Iterable<? extends MailContent> mailContents) {
+    private MailContent mergeMailContents(final Collection<? extends MailContent> mailContents) {
+        if (mailContents == null || mailContents.isEmpty()) {
+            return null;
+        }
+        if (mailContents.size() == 1) {
+            return mailContents.stream().findFirst().orElse(null);
+        }
+
         String from = null;
         String subject = null;
-        List<MimeBodyPart> bodies = new ArrayList<>();
-        List<DataSource> attachments = new ArrayList<>();
         MailContent.SignatureVerificationResult signatureVerified = MailContent.SignatureVerificationResult.NoSignature;
-        Set<String> to = new HashSet<>();
-        Set<String> cc = new HashSet<>();
-        Set<String> bcc = new HashSet<>();
+        final List<MimeBodyPart> bodies = new ArrayList<>();
+        final List<DataSource> attachments = new ArrayList<>();
+        final Set<String> to = new HashSet<>();
+        final Set<String> cc = new HashSet<>();
+        final Set<String> bcc = new HashSet<>();
 
         for (MailContent mailContent : mailContents) {
             if (mailContent == null) {

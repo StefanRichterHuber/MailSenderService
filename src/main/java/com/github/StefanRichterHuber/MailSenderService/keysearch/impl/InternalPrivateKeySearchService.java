@@ -4,12 +4,16 @@ import org.jboss.logging.Logger;
 
 import com.github.StefanRichterHuber.MailSenderService.PrivateKeyProvider;
 import com.github.StefanRichterHuber.MailSenderService.keysearch.PublicKeySearchService;
+import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
 
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.mail.Address;
 
 /**
  * Uses the PrivateKeyProvider to find a public key for a given email address
  */
+@ApplicationScoped
 public class InternalPrivateKeySearchService implements PublicKeySearchService {
 
     @Inject
@@ -19,8 +23,8 @@ public class InternalPrivateKeySearchService implements PublicKeySearchService {
     PrivateKeyProvider privateKeyProvider;
 
     @Override
-    public byte[] searchKeyByEmail(String email) {
-        if (email == null || email.isEmpty()) {
+    public RecipientWithCert findByMail(Address email) {
+        if (email == null) {
             return null;
         }
         final PrivateKeyProvider.OpenPGPKeyPair keyPair = privateKeyProvider.findByMail(email);
@@ -29,7 +33,7 @@ public class InternalPrivateKeySearchService implements PublicKeySearchService {
             return null;
         }
         logger.infof("Public Key found for email: %s in private key", email);
-        return keyPair.publicKey();
+        return keyPair.toRecipientWithCert();
     }
 
 }

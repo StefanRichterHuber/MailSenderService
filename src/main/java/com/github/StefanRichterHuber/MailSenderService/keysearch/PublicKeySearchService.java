@@ -7,6 +7,10 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
+
+import jakarta.mail.Address;
+
 /**
  * Interface for public key search services.
  */
@@ -18,7 +22,7 @@ public interface PublicKeySearchService {
      * @param email
      * @return
      */
-    byte[] searchKeyByEmail(String email);
+    RecipientWithCert findByMail(Address email);
 
     /**
      * Parses an ASCII Armored OpenPGP key and extracts the raw binary data.

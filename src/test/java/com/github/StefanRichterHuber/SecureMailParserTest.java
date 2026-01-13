@@ -2,10 +2,12 @@ package com.github.StefanRichterHuber;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -14,9 +16,11 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.Test;
 
+import com.github.StefanRichterHuber.MailSenderService.PrivateKeyProvider;
 import com.github.StefanRichterHuber.MailSenderService.SecureMailService;
 import com.github.StefanRichterHuber.MailSenderService.config.SMTPConfig;
 import com.github.StefanRichterHuber.MailSenderService.models.MailContent;
+import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
 import com.google.common.io.Files;
 
 import io.quarkus.test.junit.QuarkusTest;
@@ -27,19 +31,16 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
+import sop.SOP;
 
 @QuarkusTest
 public class SecureMailParserTest {
 
-    private static final File FILE1 = new File("README.md");
-    private static final File FILE2 = new File("pom.xml");
-
-    private static final String BODY = "Here is the requested document.";
-
-    private static final String SUBJECT = "Secure Document";
-
     @Inject
     SecureMailService secureMailSender;
+
+    @Inject
+    PrivateKeyProvider privateKeyProvider;
 
     @Inject
     @ConfigProperty(name = "mail.to")
@@ -55,14 +56,40 @@ public class SecureMailParserTest {
     @Inject
     Logger logger;
 
+    private static final SOP sop = new org.pgpainless.sop.SOPImpl();
+
+    @Test
+    public void testAutoCryptHeader() throws Exception {
+        var mail = createMail(true, true);
+        List<RecipientWithCert> autocrypt = this.secureMailSender.parseAutocryptHeader(mail);
+        assertNotNull(autocrypt);
+        assertEquals(1, autocrypt.size());
+        RecipientWithCert cert = autocrypt.get(0);
+        assertEquals(smtpConfig.from(), cert.address().toString());
+
+        // Now check if this is valid public key
+        byte[] encrypted = sop.encrypt().withCert(cert.cert())
+                .plaintext(SecureMailSenderTest.BODY.getBytes(StandardCharsets.UTF_8))
+                .toByteArrayAndResult().getBytes();
+
+        // Then check if we could decrypt with the corresponding private key
+        final var keyPair = privateKeyProvider.findByMail(cert.address());
+
+        final byte[] decrypted = sop.decrypt().withKey(keyPair.privateKey())
+                .withKeyPassword(new String(keyPair.password())).ciphertext(encrypted).toByteArrayAndResult()
+                .getBytes();
+        final String decryptedBody = new String(decrypted, StandardCharsets.UTF_8);
+
+        assertEquals(SecureMailSenderTest.BODY, decryptedBody);
+    }
+
     @Test
     public void testCreateInlineSignedMail() throws Exception {
-
         var mail = createMail(true, true);
-
         final MailContent mailContent = secureMailSender.decodeMimeMessage(mail);
 
         verifyMailContent(mailContent, true);
+
     }
 
     @Test
@@ -91,7 +118,7 @@ public class SecureMailParserTest {
 
     private void verifyMailContent(MailContent mailContent, boolean signatureExpected)
             throws IOException, MessagingException {
-        assertEquals(SUBJECT, mailContent.subject());
+        assertEquals(SecureMailSenderTest.SUBJECT, mailContent.subject());
         if (mailContent.to().size() == 1) {
             assertEquals(to2, mailContent.to().stream().findFirst().get());
         } else {
@@ -108,16 +135,18 @@ public class SecureMailParserTest {
         // of the mail
         for (MimeBodyPart body : mailContent.bodies()) {
             if (body.getContentType().contains("text/plain")) {
-                assertEquals(BODY, body.getContent().toString());
+                assertEquals(SecureMailSenderTest.BODY, body.getContent().toString());
                 break;
             }
         }
 
         // Verify the attachments
-        assertEquals(2, mailContent.attachments().size());
+        assertEquals(3, mailContent.attachments().size());
 
         for (DataSource attachment : mailContent.attachments()) {
-            assertTrue(attachment.getName().equals(FILE1.getName()) || attachment.getName().equals(FILE2.getName()));
+            assertTrue(attachment.getName().equals(SecureMailSenderTest.FILE1.getName())
+                    || attachment.getName().equals(SecureMailSenderTest.FILE2.getName())
+                    || attachment.getName().equals(SecureMailSenderTest.FILE3.getName()));
 
             byte[] content = attachment.getInputStream().readAllBytes();
             byte[] expectedContent = Files.asByteSource(new File(attachment.getName())).read();
@@ -142,12 +171,13 @@ public class SecureMailParserTest {
      */
     private MimeMessage createMail(boolean withEncryption, boolean inline) throws Exception {
         List<DataSource> attachments = new ArrayList<>();
-        attachments.add(new FileDataSource(FILE1));
-        attachments.add(new FileDataSource(FILE2));
+        attachments.add(new FileDataSource(SecureMailSenderTest.FILE1));
+        attachments.add(new FileDataSource(SecureMailSenderTest.FILE2));
+        attachments.add(new FileDataSource(SecureMailSenderTest.FILE3));
 
         MimeMessage mimeMessage = secureMailSender.createPGPMail(List.of(new InternetAddress(to2)), null, null,
-                SUBJECT, BODY, true,
-                withEncryption, false, inline,
+                SecureMailSenderTest.SUBJECT, SecureMailSenderTest.BODY, true,
+                withEncryption, true, inline,
                 false,
                 attachments);
 
@@ -164,12 +194,13 @@ public class SecureMailParserTest {
      */
     private MimeMessage createMailForMultipleRecipients(boolean withEncryption, boolean inline) throws Exception {
         List<DataSource> attachments = new ArrayList<>();
-        attachments.add(new FileDataSource(FILE1));
-        attachments.add(new FileDataSource(FILE2));
+        attachments.add(new FileDataSource(SecureMailSenderTest.FILE1));
+        attachments.add(new FileDataSource(SecureMailSenderTest.FILE2));
+        attachments.add(new FileDataSource(SecureMailSenderTest.FILE3));
 
         MimeMessage mimeMessage = secureMailSender.createPGPMail(
                 List.of(new InternetAddress(to), new InternetAddress(to2)), null, null,
-                SUBJECT, BODY, true,
+                SecureMailSenderTest.SUBJECT, SecureMailSenderTest.BODY, true,
                 withEncryption, false, inline, false,
                 attachments);
 
