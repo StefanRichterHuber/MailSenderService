@@ -13,6 +13,7 @@ import jakarta.activation.DataSource;
 import jakarta.activation.FileDataSource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.mail.Address;
 import jakarta.mail.internet.AddressException;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.ws.rs.POST;
@@ -55,9 +56,9 @@ public class MailSendResource {
                 .map(fileUpload -> new FileDataSource(fileUpload.filePath().toFile()))
                 .collect(Collectors.toList()) : Collections.emptyList();
 
-        final List<InternetAddress> toAddresses = toInternetAddressList(to);
-        final List<InternetAddress> ccAddresses = toInternetAddressList(cc);
-        final List<InternetAddress> bccAddresses = toInternetAddressList(bcc);
+        final List<? extends Address> toAddresses = toInternetAddressList(to);
+        final List<? extends Address> ccAddresses = toInternetAddressList(cc);
+        final List<? extends Address> bccAddresses = toInternetAddressList(bcc);
 
         mailFactory.sendMail(toAddresses, ccAddresses, bccAddresses, subject, body, sign, encrypt, attachments);
     }
@@ -68,7 +69,7 @@ public class MailSendResource {
      * @param addresses The list of email addresses.
      * @return The list of InternetAddress objects.
      */
-    private List<InternetAddress> toInternetAddressList(Collection<String> addresses) {
+    private List<? extends Address> toInternetAddressList(Collection<String> addresses) {
         if (addresses == null || addresses.isEmpty()) {
             return Collections.emptyList();
         }
