@@ -364,27 +364,12 @@ public class SecureMailService {
 
         final String encryptedAscii = new String(encryptedBytes, StandardCharsets.UTF_8);
 
-        // 2. Create the Multipart/Alternative structure
-        // This allows clients to see the block in plain text or HTML
-        final MimeMultipart contentMultipart = new MimeMultipart("alternative");
-
         // Part A: Plain Text (The raw PGP block)
         final MimeBodyPart textPart = new MimeBodyPart();
         textPart.setText(encryptedAscii, "UTF-8");
-        contentMultipart.addBodyPart(textPart);
+        rootMultipart.addBodyPart(textPart);
 
-        // Part B: HTML (The PGP block wrapped in <pre>)
-        // This ensures webmails display the block cleanly for Mailvelope to detect
-        final MimeBodyPart htmlPart = new MimeBodyPart();
-        final String htmlContent = "<html><body><pre>" + encryptedAscii + "</pre></body></html>";
-        htmlPart.setContent(htmlContent, "text/html; charset=UTF-8");
-        contentMultipart.addBodyPart(htmlPart);
-
-        MimeBodyPart mainBodyPart = new MimeBodyPart();
-        mainBodyPart.setContent(contentMultipart);
-        rootMultipart.addBodyPart(mainBodyPart);
-
-        // --- 3. Process and Add Attachments. Attachments are added as detached
+        // Process and Add Attachments. Attachments are added as detached
         // encrypted files and need to be decrypted separately from the main message ---
         if (attachments != null) {
             for (DataSource attachment : attachments) {
@@ -433,14 +418,20 @@ public class SecureMailService {
         final MimeMessage message = new MimeMessage(session);
         message.setFrom(from);
 
-        for (RecipientWithCert recipient : to) {
-            message.addRecipient(MimeMessage.RecipientType.TO, recipient.address());
+        if (to != null) {
+            for (RecipientWithCert recipient : to) {
+                message.addRecipient(MimeMessage.RecipientType.TO, recipient.address());
+            }
         }
-        for (RecipientWithCert recipient : cc) {
-            message.addRecipient(MimeMessage.RecipientType.CC, recipient.address());
+        if (cc != null) {
+            for (RecipientWithCert recipient : cc) {
+                message.addRecipient(MimeMessage.RecipientType.CC, recipient.address());
+            }
         }
-        for (RecipientWithCert recipient : bcc) {
-            message.addRecipient(MimeMessage.RecipientType.BCC, recipient.address());
+        if (bcc != null) {
+            for (RecipientWithCert recipient : bcc) {
+                message.addRecipient(MimeMessage.RecipientType.BCC, recipient.address());
+            }
         }
         message.setSubject(subject); // Note: Subject is NOT hidden in Inline PGP
         message.setContent(rootMultipart);

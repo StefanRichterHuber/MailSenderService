@@ -129,12 +129,11 @@ public class SecureMailParserTest {
         assertEquals(signatureExpected,
                 mailContent.signatureVerified() == MailContent.SignatureVerificationResult.SignatureVerified);
 
-        // For inline-pgp we expect two bodies one with text/plain and one with
-        // text/html
+        // For inline-pgp we expect text/plain
         // Always search for the first body with text/plain to verify the content
         // of the mail
         for (MimeBodyPart body : mailContent.bodies()) {
-            if (body.getContentType().contains("text/plain")) {
+            if (body.isMimeType("text/plain")) {
                 assertEquals(SecureMailSenderTest.BODY, body.getContent().toString());
                 break;
             }
