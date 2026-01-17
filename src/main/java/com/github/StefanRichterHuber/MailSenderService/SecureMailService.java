@@ -34,6 +34,8 @@ import com.github.StefanRichterHuber.MailSenderService.models.MailContent.Signat
 import com.github.StefanRichterHuber.MailSenderService.models.RecipientWithCert;
 
 import jakarta.activation.DataSource;
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.mail.Address;
@@ -98,14 +100,14 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public void sendMail(
-            final Collection<? extends Address> to,
-            final Collection<? extends Address> cc,
-            final Collection<? extends Address> bcc,
-            final String subject,
-            final String body,
+            @Nullable final Collection<? extends Address> to,
+            @Nullable final Collection<? extends Address> cc,
+            @Nullable final Collection<? extends Address> bcc,
+            @Nonnull final String subject,
+            @Nonnull final String body,
             final boolean sign,
             final boolean encrypt,
-            final Iterable<? extends DataSource> attachments) throws Exception {
+            @Nullable final Iterable<? extends DataSource> attachments) throws Exception {
 
         // Inline PGP is only supported if encryption is enabled
         final boolean inlinePGP = smtpConfig.inlinePGP() && encrypt;
@@ -137,13 +139,13 @@ public class SecureMailService {
      * @throws Exception
      */
     public MimeMessage createPlainMail(
-            final Collection<? extends Address> to,
-            final Collection<? extends Address> cc,
-            final Collection<? extends Address> bcc,
-            final String subject,
-            final String body,
+            @Nullable final Collection<? extends Address> to,
+            @Nullable final Collection<? extends Address> cc,
+            @Nullable final Collection<? extends Address> bcc,
+            @Nonnull final String subject,
+            @Nonnull final String body,
             final boolean addAutocryptHeader,
-            final Iterable<? extends DataSource> attachments) throws Exception {
+            @Nullable final Iterable<? extends DataSource> attachments) throws Exception {
 
         final Address from = smtpConfig.from();
 
@@ -188,17 +190,17 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public MimeMessage createPGPMail(
-            final Collection<? extends Address> to,
-            final Collection<? extends Address> cc,
-            final Collection<? extends Address> bcc,
-            final String subject,
-            final String body,
+            @Nullable final Collection<? extends Address> to,
+            @Nullable final Collection<? extends Address> cc,
+            @Nullable final Collection<? extends Address> bcc,
+            @Nonnull final String subject,
+            @Nonnull final String body,
             final boolean sign,
             final boolean encrypt,
             final boolean addAutocryptHeader,
             final boolean inlinePGP,
             final boolean fallbackToPlainMailIfNotAllRecipientsHaveCertificate,
-            final Iterable<? extends DataSource> attachments) throws Exception {
+            @Nullable final Iterable<? extends DataSource> attachments) throws Exception {
 
         final Address from = smtpConfig.from();
         final OpenPGPKeyPair senderKeyPair = sign ? privateKeyProvider.findByMail(from) : null;
@@ -292,15 +294,15 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public MimeMessage createInlinePGPMail(
-            final Address from,
-            final Collection<RecipientWithCert> to,
-            final Collection<RecipientWithCert> cc,
-            final Collection<RecipientWithCert> bcc,
-            final String subject,
-            final String body,
-            final OpenPGPKeyPair senderKeyPair,
-            final Iterable<? extends DataSource> attachments,
-            final Session session) throws Exception {
+            @Nonnull final Address from,
+            @Nullable final Collection<RecipientWithCert> to,
+            @Nullable final Collection<RecipientWithCert> cc,
+            @Nullable final Collection<RecipientWithCert> bcc,
+            @Nonnull final String subject,
+            @Nonnull final String body,
+            @Nullable final OpenPGPKeyPair senderKeyPair,
+            @Nullable final Iterable<? extends DataSource> attachments,
+            @Nonnull final Session session) throws Exception {
 
         // Validate inputs, one after another
         if (from == null) {
@@ -314,6 +316,9 @@ public class SecureMailService {
         }
         if (body == null || body.isEmpty()) {
             throw new IllegalArgumentException("body must not be null or empty");
+        }
+        if (session == null) {
+            throw new IllegalArgumentException("session must not be null");
         }
 
         final List<RecipientWithCert> recipients = Stream.of(to, cc, bcc).flatMap(Collection::stream).toList();
@@ -460,15 +465,15 @@ public class SecureMailService {
      * @throws Exception If an error occurs.
      */
     public MimeMessage createPGPMail(
-            final Address from,
-            final Collection<RecipientWithCert> to,
-            final Collection<RecipientWithCert> cc,
-            final Collection<RecipientWithCert> bcc,
-            final String subject,
-            final String body,
-            final OpenPGPKeyPair senderKeyPair,
-            final Iterable<? extends DataSource> attachments,
-            Session session) throws Exception {
+            @Nonnull final Address from,
+            @Nullable final Collection<RecipientWithCert> to,
+            @Nullable final Collection<RecipientWithCert> cc,
+            @Nullable final Collection<RecipientWithCert> bcc,
+            @Nonnull final String subject,
+            @Nonnull final String body,
+            @Nullable final OpenPGPKeyPair senderKeyPair,
+            @Nullable final Iterable<? extends DataSource> attachments,
+            @Nonnull final Session session) throws Exception {
         // --- Inputs ---
         // Validate inputs, one after another
         if (from == null) {
@@ -479,6 +484,9 @@ public class SecureMailService {
         }
         if (body == null || body.isEmpty()) {
             throw new IllegalArgumentException("body must not be null or empty");
+        }
+        if (session == null) {
+            throw new IllegalArgumentException("session must not be null");
         }
         final List<RecipientWithCert> recipients = Stream.of(to, cc, bcc).flatMap(Collection::stream).toList();
         final boolean encryptionPossible = encryptionPossible(recipients);
@@ -731,7 +739,7 @@ public class SecureMailService {
      * @throws MessagingException If the header cannot be set.
      * @throws IOException        If there is an error reading the byte stream.
      */
-    public MimeMessage addAutocryptHeader(final MimeMessage message)
+    public MimeMessage addAutocryptHeader(@Nonnull final MimeMessage message)
             throws MessagingException, IOException {
 
         final RecipientWithCert sender = message.getFrom() == null ? null
@@ -756,8 +764,10 @@ public class SecureMailService {
      * @throws MessagingException If the header cannot be set.
      * @throws IOException
      */
-    public MimeMessage addAutocryptHeader(final MimeMessage message,
-            final RecipientWithCert sender)
+    @Nonnull
+    public MimeMessage addAutocryptHeader(
+            @Nonnull final MimeMessage message,
+            @Nullable final RecipientWithCert sender)
             throws MessagingException, IOException {
         final String senderEmail = Optional.ofNullable(sender).map(RecipientWithCert::address)
                 .map(Address::toString).orElse(null);
@@ -819,7 +829,8 @@ public class SecureMailService {
      * @return RecipientWithCert if line valid, null if not
      * @throws AddressException
      */
-    private RecipientWithCert parseAutocryptHeader(final String autocryptHeader) throws AddressException {
+    @Nullable
+    private RecipientWithCert parseAutocryptHeader(@Nullable final String autocryptHeader) throws AddressException {
         if (autocryptHeader == null || autocryptHeader.isEmpty() || !autocryptHeader.contains("addr")
                 || !autocryptHeader.contains("keydata")) {
             return null;
@@ -858,7 +869,8 @@ public class SecureMailService {
      * @throws MessagingException
      * @throws IOException
      */
-    public MailContent decodeMimeMessage(final MimeMessage mimeMessage)
+    public MailContent decodeMimeMessage(
+            @Nonnull final MimeMessage mimeMessage)
             throws MessagingException, IOException {
 
         if (mimeMessage == null) {
@@ -902,8 +914,10 @@ public class SecureMailService {
      * @throws MessagingException
      * @throws IOException
      */
-    public MailContent decodeMimeMessage(MimeMessage mimeMessage, OpenPGPKeyPair receiverKeyPair,
-            RecipientWithCert senderPublicKey)
+    public MailContent decodeMimeMessage(
+            @Nonnull final MimeMessage mimeMessage,
+            @Nullable final OpenPGPKeyPair receiverKeyPair,
+            @Nullable final RecipientWithCert senderPublicKey)
             throws MessagingException, IOException {
 
         if (mimeMessage == null) {
@@ -945,7 +959,9 @@ public class SecureMailService {
      * @return Set of recipients
      * @throws MessagingException
      */
-    private Set<Address> extractRecipients(MimeMessage message, RecipientType type) throws MessagingException {
+    private Set<Address> extractRecipients(
+            @Nullable final MimeMessage message,
+            @Nullable final RecipientType type) throws MessagingException {
         if (message == null || type == null) {
             return Collections.emptySet();
         }
@@ -967,8 +983,10 @@ public class SecureMailService {
      * @throws IOException
      * @throws MessagingException
      */
-    private MailContent decodeEncryptedMimeMessage(MimeMessage mimeMessage, OpenPGPKeyPair receiverKeyPair,
-            RecipientWithCert senderPublicKey) throws IOException, MessagingException {
+    private MailContent decodeEncryptedMimeMessage(
+            @Nonnull MimeMessage mimeMessage,
+            @Nullable OpenPGPKeyPair receiverKeyPair,
+            @Nullable RecipientWithCert senderPublicKey) throws IOException, MessagingException {
         final MimeMultipart mimeMultipart = (MimeMultipart) mimeMessage.getContent();
         // First message part is version imformation and of content type
         // application/pgp-encrypted
@@ -1038,8 +1056,10 @@ public class SecureMailService {
      * @throws MessagingException if an error occurs while parsing the mime part
      * @throws IOException        if an I/O error occurs
      */
-    private MailContent parseMimePart(MimePart mimePart, OpenPGPKeyPair receiverKeyPair,
-            RecipientWithCert senderPublicKey)
+    private MailContent parseMimePart(
+            @Nonnull MimePart mimePart,
+            @Nullable OpenPGPKeyPair receiverKeyPair,
+            @Nullable RecipientWithCert senderPublicKey)
             throws MessagingException, IOException {
         final List<MailContent> mailContents = new ArrayList<>();
         final MailContent headers = extractProtectedMailHeaders(mimePart);
@@ -1155,7 +1175,8 @@ public class SecureMailService {
      * @return MailContent with headers or null if nothing found
      * @throws MessagingException
      */
-    private MailContent extractProtectedMailHeaders(final MimePart mimePart) throws MessagingException {
+    @Nullable
+    private MailContent extractProtectedMailHeaders(@Nullable final MimePart mimePart) throws MessagingException {
         if (mimePart == null) {
             return null;
         }
@@ -1195,7 +1216,8 @@ public class SecureMailService {
     /**
      * Creates an Address Instance from a String
      */
-    private Address createAddress(String address) {
+    @Nonnull
+    private Address createAddress(@Nonnull String address) {
         try {
             return new InternetAddress(address);
         } catch (AddressException e) {
@@ -1211,7 +1233,8 @@ public class SecureMailService {
      * @throws IOException
      * @throws MessagingException
      */
-    private byte[] getBytesFromMimePart(MimePart mimePart) throws IOException, MessagingException {
+    @Nullable
+    private byte[] getBytesFromMimePart(@Nullable MimePart mimePart) throws IOException, MessagingException {
         if (mimePart == null || mimePart.getContent() == null) {
             return null;
         }
@@ -1253,8 +1276,11 @@ public class SecureMailService {
      * @throws SOPGPException if an error occurs during decryption
      * @throws IOException    if an I/O error occurs
      */
-    private ConditionalDecryptionResult decryptIfEncrypted(byte[] content, OpenPGPKeyPair receiverKeyPair,
-            RecipientWithCert senderPublicKey)
+    @Nullable
+    private ConditionalDecryptionResult decryptIfEncrypted(
+            @Nullable byte[] content,
+            @Nullable OpenPGPKeyPair receiverKeyPair,
+            @Nullable RecipientWithCert senderPublicKey)
             throws SOPGPException, IOException {
 
         if (content == null || content.length == 0) {
@@ -1303,8 +1329,9 @@ public class SecureMailService {
      * @return true if the signature is valid, false otherwise
      * @throws IOException if an I/O error occurs
      */
-    private boolean verifySignature(MimeBodyPart content, MimeBodyPart signature, RecipientWithCert publicKey)
-            throws MessagingException, IOException {
+    @Nullable
+    private boolean verifySignature(@Nullable MimeBodyPart content, @Nullable MimeBodyPart signature,
+            @Nullable RecipientWithCert publicKey) throws MessagingException, IOException {
 
         if (content == null) {
             logger.warn("Content is null");
@@ -1336,7 +1363,9 @@ public class SecureMailService {
      * @return true if the signature is valid, false otherwise
      * @throws IOException if an I/O error occurs
      */
-    private boolean verifySignature(byte[] content, byte[] signature, byte[] publicKey) throws IOException {
+    @Nullable
+    private boolean verifySignature(@Nullable byte[] content, @Nullable byte[] signature, @Nullable byte[] publicKey)
+            throws IOException {
         if (content == null || content.length == 0) {
             logger.warn("Content is null or empty");
             return false;
@@ -1368,7 +1397,8 @@ public class SecureMailService {
      * @param mailContents the mail contents to merge
      * @return the merged mail content
      */
-    private MailContent mergeMailContents(final Collection<? extends MailContent> mailContents) {
+    @Nullable
+    private MailContent mergeMailContents(@Nullable final Collection<? extends MailContent> mailContents) {
         if (mailContents == null || mailContents.isEmpty()) {
             return null;
         }
@@ -1417,7 +1447,8 @@ public class SecureMailService {
     /**
      * Converts a BodyPart to canonical CRLF bytes for signing.
      */
-    private static byte[] getCanonicalBytes(MimeBodyPart bodyPart) throws IOException, MessagingException {
+    @Nonnull
+    private static byte[] getCanonicalBytes(@Nonnull MimeBodyPart bodyPart) throws IOException, MessagingException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         // Use the wrapper to force CRLF during serialization
         bodyPart.writeTo(buffer);
@@ -1429,7 +1460,8 @@ public class SecureMailService {
      * 
      * @throws IOException
      */
-    private static byte[] decodePublicKey(byte[] keyFileBytes) throws IOException {
+    @Nullable
+    private static byte[] decodePublicKey(@Nullable byte[] keyFileBytes) throws IOException {
         if (keyFileBytes == null || keyFileBytes.length == 0) {
             return null;
         }
@@ -1450,7 +1482,8 @@ public class SecureMailService {
      * @return The raw binary key data.
      * @throws IOException If there is an error reading the byte stream.
      */
-    private static byte[] dearmorKey(byte[] armoredKeyBytes) throws IOException {
+    @Nullable
+    private static byte[] dearmorKey(@Nullable byte[] armoredKeyBytes) throws IOException {
         if (armoredKeyBytes == null || armoredKeyBytes.length == 0) {
             return null;
         }
