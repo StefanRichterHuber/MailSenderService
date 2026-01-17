@@ -579,14 +579,20 @@ public class SecureMailService {
         // part is added to a MimeMessage and MimeMessage.saveChanges() is called)
         final MimeMessage tmp = new MimeMessage(session);
         tmp.setFrom(from);
-        for (RecipientWithCert recipient : to) {
-            tmp.addRecipient(MimeMessage.RecipientType.TO, recipient.address());
+        if (to != null) {
+            for (RecipientWithCert recipient : to) {
+                tmp.addRecipient(MimeMessage.RecipientType.TO, recipient.address());
+            }
         }
-        for (RecipientWithCert recipient : cc) {
-            tmp.addRecipient(MimeMessage.RecipientType.CC, recipient.address());
+        if (cc != null) {
+            for (RecipientWithCert recipient : cc) {
+                tmp.addRecipient(MimeMessage.RecipientType.CC, recipient.address());
+            }
         }
-        for (RecipientWithCert recipient : bcc) {
-            tmp.addRecipient(MimeMessage.RecipientType.BCC, recipient.address());
+        if (bcc != null) {
+            for (RecipientWithCert recipient : bcc) {
+                tmp.addRecipient(MimeMessage.RecipientType.BCC, recipient.address());
+            }
         }
         tmp.setSubject(subject);
 
@@ -686,14 +692,20 @@ public class SecureMailService {
         MimeMessage message = new MimeMessage(
                 session);
         message.setFrom(from);
-        for (RecipientWithCert recipient : to) {
-            message.addRecipient(MimeMessage.RecipientType.TO, recipient.address());
+        if (to != null) {
+            for (RecipientWithCert recipient : to) {
+                message.addRecipient(MimeMessage.RecipientType.TO, recipient.address());
+            }
         }
-        for (RecipientWithCert recipient : cc) {
-            message.addRecipient(MimeMessage.RecipientType.CC, recipient.address());
+        if (cc != null) {
+            for (RecipientWithCert recipient : cc) {
+                message.addRecipient(MimeMessage.RecipientType.CC, recipient.address());
+            }
         }
-        for (RecipientWithCert recipient : bcc) {
-            message.addRecipient(MimeMessage.RecipientType.BCC, recipient.address());
+        if (bcc != null) {
+            for (RecipientWithCert recipient : bcc) {
+                message.addRecipient(MimeMessage.RecipientType.BCC, recipient.address());
+            }
         }
         if (protectHeaders) {
             // If encrypted, obscure the outer subject[cite: 159, 258].
