@@ -293,6 +293,7 @@ public class SecureMailService {
      * @return The secure email message.
      * @throws Exception If an error occurs.
      */
+    @SuppressWarnings("unused")
     public MimeMessage createInlinePGPMail(
             @Nonnull final Address from,
             @Nullable final Collection<RecipientWithCert> to,
@@ -464,6 +465,7 @@ public class SecureMailService {
      * @return The secure email message.
      * @throws Exception If an error occurs.
      */
+    @SuppressWarnings("unused")
     public MimeMessage createPGPMail(
             @Nonnull final Address from,
             @Nullable final Collection<RecipientWithCert> to,
@@ -564,15 +566,9 @@ public class SecureMailService {
             final String encodedSubject = MimeUtility.encodeText(subject);
             contentBodyPart.setHeader("Subject", encodedSubject);
             contentBodyPart.setHeader("From", from.toString());
-            contentBodyPart.setHeader("To",
-                    to.stream().map(RecipientWithCert::address).map(Address::toString)
-                            .collect(Collectors.joining(", ")));
-            contentBodyPart.setHeader("Cc",
-                    cc.stream().map(RecipientWithCert::address).map(Address::toString)
-                            .collect(Collectors.joining(", ")));
-            contentBodyPart.setHeader("Bcc",
-                    bcc.stream().map(RecipientWithCert::address).map(Address::toString)
-                            .collect(Collectors.joining(", ")));
+            contentBodyPart.setHeader("To", this.encodeRecipientsForHeader(to));
+            contentBodyPart.setHeader("Cc", this.encodeRecipientsForHeader(cc));
+            contentBodyPart.setHeader("Bcc", this.encodeRecipientsForHeader(bcc));
 
             // 2. Append the 'protected-headers="v1"' parameter to the Content-Type.
             // This MUST be on the root of the Cryptographic Payload[cite: 155].
@@ -731,6 +727,23 @@ public class SecureMailService {
     }
 
     /**
+     * Encodes a list of recipients for use in a header.
+     * 
+     * @param recipients
+     * @return
+     */
+    private String encodeRecipientsForHeader(Collection<? extends RecipientWithCert> recipients) {
+        if (recipients == null || recipients.isEmpty()) {
+            return null;
+        }
+
+        // InternetAddress.toString() already encodes the address in a way that is safe
+        // for mail headers
+        return recipients.stream().map(RecipientWithCert::address).map(Address::toString)
+                .collect(Collectors.joining(", "));
+    }
+
+    /**
      * Adds an Autocrypt header to a Jakarta Mail message with the certificate of
      * the sender.
      * 
@@ -769,8 +782,14 @@ public class SecureMailService {
             @Nonnull final MimeMessage message,
             @Nullable final RecipientWithCert sender)
             throws MessagingException, IOException {
-        final String senderEmail = Optional.ofNullable(sender).map(RecipientWithCert::address)
-                .map(Address::toString).orElse(null);
+        String senderEmail = null;
+
+        if (sender != null && sender.address() instanceof InternetAddress) {
+            senderEmail = ((InternetAddress) sender.address()).getAddress();
+        } else if (sender != null && sender.address() instanceof Address) {
+            senderEmail = sender.address().toString();
+        }
+
         if (senderEmail == null) {
             logger.warnf("No sender email found. Unable to add Autocrypt header.");
             return message;
@@ -856,7 +875,9 @@ public class SecureMailService {
 
         final byte[] key = Base64.getDecoder().decode(keyBase64);
 
-        return new RecipientWithCert(createAddress(address), key);
+        final Address adr = parseAddress(address).stream().findFirst().orElse(null);
+
+        return new RecipientWithCert(adr, key);
     }
 
     /**
@@ -869,6 +890,7 @@ public class SecureMailService {
      * @throws MessagingException
      * @throws IOException
      */
+    @SuppressWarnings("unused")
     public MailContent decodeMimeMessage(
             @Nonnull final MimeMessage mimeMessage)
             throws MessagingException, IOException {
@@ -914,6 +936,7 @@ public class SecureMailService {
      * @throws MessagingException
      * @throws IOException
      */
+    @SuppressWarnings("unused")
     public MailContent decodeMimeMessage(
             @Nonnull final MimeMessage mimeMessage,
             @Nullable final OpenPGPKeyPair receiverKeyPair,
@@ -1184,8 +1207,10 @@ public class SecureMailService {
             logger.debugf("Mime part contains protected headers v1");
             // Check if this part has from / to / subject fields -> this happens when the
             // mail is pgp/mime encrypted
-            final Address from = Optional.ofNullable(mimePart.getHeader("From")).filter(s -> s.length > 0)
-                    .map(s -> s[0]).map(this::createAddress).orElse(null);
+            final Address from = parseAddress(mimePart.getHeader("From")).stream().findFirst().orElse(null);
+            final Set<? extends Address> to = parseAddress(mimePart.getHeader("To"));
+            final Set<? extends Address> cc = parseAddress(mimePart.getHeader("Cc"));
+            final Set<? extends Address> bcc = parseAddress(mimePart.getHeader("Bcc"));
             final String subject = Optional.ofNullable(mimePart.getHeader("Subject")).filter(s -> s.length > 0)
                     .map(s -> s[0]).map(t -> {
                         try {
@@ -1195,18 +1220,7 @@ public class SecureMailService {
                             return t;
                         }
                     }).orElse(null);
-            final Set<? extends Address> to = Optional.ofNullable(mimePart.getHeader("To")).filter(s -> s.length > 0)
-                    .map(s -> Arrays.stream(s).map(v -> v.trim()).filter(v -> !v.isEmpty()).map(this::createAddress)
-                            .collect(Collectors.toSet()))
-                    .orElse(null);
-            final Set<? extends Address> cc = Optional.ofNullable(mimePart.getHeader("Cc")).filter(s -> s.length > 0)
-                    .map(s -> Arrays.stream(s).map(v -> v.trim()).filter(v -> !v.isEmpty()).map(this::createAddress)
-                            .collect(Collectors.toSet()))
-                    .orElse(null);
-            final Set<? extends Address> bcc = Optional.ofNullable(mimePart.getHeader("Bcc")).filter(s -> s.length > 0)
-                    .map(s -> Arrays.stream(s).map(v -> v.trim()).filter(v -> !v.isEmpty()).map(this::createAddress)
-                            .collect(Collectors.toSet()))
-                    .orElse(null);
+
             return new MailContent(from, to, cc, bcc, subject, new ArrayList<>(), new ArrayList<>(),
                     MailContent.SignatureVerificationResult.NoSignature);
         }
@@ -1217,12 +1231,23 @@ public class SecureMailService {
      * Creates an Address Instance from a String
      */
     @Nonnull
-    private Address createAddress(@Nonnull String address) {
+    private Set<? extends Address> parseAddress(@Nullable String... addresses) {
+        if (addresses == null || addresses.length == 0) {
+            return Collections.emptySet();
+        }
+
+        final Set<Address> result = new HashSet<>();
         try {
-            return new InternetAddress(address);
+            for (String address : addresses) {
+                if (address != null && !address.isBlank()) {
+                    final List<InternetAddress> adr = List.of(InternetAddress.parseHeader(address, false));
+                    result.addAll(adr);
+                }
+            }
         } catch (AddressException e) {
             throw new RuntimeException(e);
         }
+        return result;
     }
 
     /**

@@ -17,6 +17,7 @@ import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.mail.Address;
+import jakarta.mail.internet.InternetAddress;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 
@@ -39,13 +40,21 @@ public class MailvelopPublicKeySearchService implements PublicKeySearchService {
         if (email == null) {
             return null;
         }
+
+        String mailString = null;
+        if (email instanceof InternetAddress) {
+            mailString = ((InternetAddress) email).getAddress();
+        } else {
+            mailString = email.toString();
+        }
+
         for (String mailvelopeServer : smtpConfig.mailvelopeKeyServers()) {
             final MailvelopeKeyServerService mailvelopeKeyServerService = QuarkusRestClientBuilder.newBuilder()
                     .baseUri(URI.create(mailvelopeServer))
                     .build(MailvelopeKeyServerService.class);
             try {
                 final RestResponse<MailvelopeKeySearchResponse> response = mailvelopeKeyServerService
-                        .searchKeyByEmail(email.toString());
+                        .searchKeyByEmail(mailString);
                 if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
                     logger.debugf("Public Key found for email: %s on %s", email, mailvelopeServer);
                     final String armouredKey = response.getEntity().publicKeyArmored();

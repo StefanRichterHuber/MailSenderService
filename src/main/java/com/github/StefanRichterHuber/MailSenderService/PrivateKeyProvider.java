@@ -15,6 +15,8 @@ import io.quarkus.cache.CacheResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.mail.Address;
+import jakarta.mail.internet.AddressException;
+import jakarta.mail.internet.InternetAddress;
 
 /**
  * Provides the private and public key for the configured sender email. This
@@ -70,6 +72,18 @@ public class PrivateKeyProvider {
         if (senderEmail == null) {
             return null;
         }
+
+        if (!(senderEmail instanceof InternetAddress)) {
+            // Address must be of type InternetAddress to work with equals
+            try {
+                final InternetAddress internetAddress = new InternetAddress(senderEmail.toString());
+                return findByMail(internetAddress);
+            } catch (AddressException e) {
+                logger.errorf(e, "Failed to read sender private key for %s", smtpConfig.from());
+                return null;
+            }
+        }
+
         if (senderEmail.equals(smtpConfig.from())) {
             try {
                 final byte[] senderKey = smtpConfig.senderSecretKeyFile().exists()

@@ -16,6 +16,7 @@ import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.mail.Address;
+import jakarta.mail.internet.InternetAddress;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 
@@ -45,12 +46,20 @@ public class VerifyingKeyServerKeySearchService implements PublicKeySearchServic
         if (email == null) {
             return null;
         }
+
+        String mailString = null;
+        if (email instanceof InternetAddress) {
+            mailString = ((InternetAddress) email).getAddress();
+        } else {
+            mailString = email.toString();
+        }
+
         for (String vksUrl : smtpConfig.vksKeyServers()) {
             final VerifyingKeyserverService openPGPKeyServerService = QuarkusRestClientBuilder.newBuilder()
                     .baseUri(URI.create(vksUrl))
                     .build(VerifyingKeyserverService.class);
             try {
-                final RestResponse<String> response = openPGPKeyServerService.getByEmail(email.toString());
+                final RestResponse<String> response = openPGPKeyServerService.getByEmail(mailString);
                 if (response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL) {
                     logger.debugf("Public Key found for email: %s on %s", email, vksUrl);
                     final String armouredKey = response.getEntity();

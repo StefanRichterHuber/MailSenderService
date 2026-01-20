@@ -7,9 +7,13 @@ import jakarta.activation.DataSource;
 import jakarta.mail.Address;
 import jakarta.mail.internet.MimeBodyPart;
 
-public record MailContent(Address from, Set<? extends Address> to, Set<? extends Address> cc,
+public record MailContent(Address from,
+        Set<? extends Address> to,
+        Set<? extends Address> cc,
         Set<? extends Address> bcc,
-        String subject, Collection<MimeBodyPart> bodies, Collection<DataSource> attachments,
+        String subject,
+        Collection<? extends MimeBodyPart> bodies,
+        Collection<? extends DataSource> attachments,
         SignatureVerificationResult signatureVerified) {
 
     public static enum SignatureVerificationResult {
